@@ -39,6 +39,7 @@ from ..engine import BacktestEngine
 from ..execution.costs import CostModel
 from ..execution.simulator import SimulatedExecutionHandler
 from ..portfolio.portfolio import PercentEquitySizer, PortfolioManager
+from ..strategy.base import Strategy
 from ..strategy.pairs_trading import PairsTradingStrategy
 
 DataSource = dict[str, Union[pd.DataFrame, str, Path]]
@@ -69,7 +70,7 @@ class BacktestResult:
     """Assembled engine artefacts of one causal backtest run."""
 
     portfolio: PortfolioManager
-    strategy: PairsTradingStrategy
+    strategy: Strategy
     handler: HistoricCSVDataHandler
 
 
