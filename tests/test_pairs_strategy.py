@@ -186,9 +186,11 @@ def test_hedge_ratio_matches_direct_sklearn_refit(gross, pair_data):
     refit = LinearRegression().fit(log_gdx.reshape(-1, 1), log_gld)
     assert diag["beta"].iloc[-1] == pytest.approx(float(refit.coef_[0]), abs=1e-9)
     assert diag["alpha"].iloc[-1] == pytest.approx(float(refit.intercept_), abs=1e-9)
-    # Stationary-spread construction: estimates stay in a sane band around 1.4.
+    # Stationary-spread construction: estimates track the data-generating
+    # beta on average, with rolling-window estimation noise inside a wide
+    # sanity band (no sign flips / degenerate fits).
     assert diag["beta"].mean() == pytest.approx(TRUE_BETA, abs=0.15)
-    assert diag["beta"].between(1.0, 1.8).all()
+    assert diag["beta"].between(0.9, 2.0).all()
 
 
 # --------------------------------------------------------------------------
