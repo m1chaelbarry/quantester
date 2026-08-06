@@ -1,0 +1,41 @@
+---
+description: Quantester architecture invariants — read before any change to the engine
+alwaysApply: true
+---
+
+# Quantester Core Invariants
+
+Quantester is an institutional-grade, event-driven backtester. Five decoupled
+modules (DataHandler -> Strategy -> PortfolioManager -> ExecutionSimulator ->
+Analytics) communicate ONLY through the four-event lifecycle:
+`MarketEvent -> SignalEvent -> OrderEvent -> FillEvent` on a shared queue
+(`quantester/engine.py`). Never bypass the queue with direct calls between
+components.
+
+## Look-ahead safety is enforced, not conventional
+
+- The **State-Based Temporal Firewall** is the defense, NOT a hardcoded T+1.
+  Every bar is processed in two phases (`open`, then `close`). Strategies
+  declare `delay` (bars until execution); orders carry `earliest_fill_time`
+  enforced by the execution ledger.
+- `delay=0` fills at bar T's open under the intra-bar guard: the strategy may
+  only see data strictly before the fill timestamp (bars up to T-1 plus T's
+  open print). `get_latest_bars` at open phase must exclude the current bar.
+- Downstream code may ONLY observe market data through the `DataHandler`
+  interface. Never read raw DataFrames in strategies/portfolio/execution.
+
+## Ledger accounting
+
+`fill_price` already embeds spread/slippage/impact adjustments. Cash is charged
+`qty * fill_price + commission` — `slippage_cost` (phi_t) is recorded for cost
+analytics but NEVER double-deducted (see `portfolio/portfolio.py`).
+
+## Non-negotiables
+
+- Multi-symbol alignment: outer-join timestamp union + availability masks.
+  Missing bars mark the asset untradeable; timestamps are NEVER erased.
+- Stop orders fill at the next AVAILABLE price after gap-through, never the
+  guaranteed stop price (perfect stops silently unbound optimal-f).
+- ETF-trick `c_t` stays EXTERNAL to `K_t` (embedding it fabricates short-spread
+  profits); book it as a negative dividend at strategy level.
+- All RNG is seeded via `numpy.random.Generator(seed)` — no global `np.random`.

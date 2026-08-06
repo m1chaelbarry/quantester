@@ -1,0 +1,37 @@
+---
+description: Rules for extending Quantester (handlers, costs, analytics, Monte Carlo)
+globs: quantester/**
+alwaysApply: false
+---
+
+# Extending the Engine
+
+## New components
+
+- New data feeds: subclass `DataHandler` (`data/base.py`) and honor the
+  firewall contract exactly — phase-aware `get_latest_bars`, `bar_at` for
+  execution, `timestamp_at_offset` for order stamping.
+- New cost models go in `execution/costs.py` as deterministic functions of
+  (order, bar) — the event engine and Monte Carlo fast-track MUST share them,
+  or parity breaks. No randomness in cost models (Kyle dy is unobservable by
+  design; determinism = reproducibility).
+- New sizers: callable `(signal, portfolio, ref_price) -> target_qty`, wire via
+  `PortfolioManager(sizer=...)`.
+
+## Monte Carlo
+
+- Heavy loops (MCPT, bootstrap ensembles) run on `montecarlo/fast_track.py`,
+  never 10k event-loop re-runs. The fast-track parity contract: targets decided
+  at close T execute at open T+1; `equity = cash + Q*close`; same CostModel.
+- Any change to fill semantics must keep `test_fast_track_engine_parity`
+  green — that test is the guard against silent divergence.
+
+## Testing requirements for any change
+
+- Every module ships with pytest coverage in `tests/`; keep it fast (< 10 s
+  total) by using small replication counts in MC tests.
+- Required regression tests when touching execution/portfolio: temporal-
+  firewall delay enforcement (delay=0 and delay=1), ledger accounting,
+  stop-gap slippage, fast-track parity, and the truncation no-look-ahead test.
+- Run `python -m pytest tests/ -q` plus both `examples/` scripts before
+  committing; a red example is a red build.

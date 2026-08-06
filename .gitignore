@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.cursor/plans/
+examples/data/
+examples/output/

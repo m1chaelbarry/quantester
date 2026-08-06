@@ -1,0 +1,42 @@
+---
+description: How to author and validate new Quantester strategies
+globs: quantester/strategy/**, examples/**
+alwaysApply: false
+---
+
+# Strategy Development Contract
+
+## Authoring
+
+- Subclass `Strategy` (`quantester/strategy/base.py`); implement
+  `calculate_signals(event, events_queue)` pushing `SignalEvent`s.
+- Set `delay`: `1` = signal at close T, fill at open T+1 (default, safest);
+  `0` = Delay-0 at the current open (intra-bar guard applies automatically).
+- Carry position state on the instance and emit only on CHANGES (see
+  `MovingAverageCrossStrategy`); never re-emit the same target every bar.
+- Check `event.bars.get(symbol) is not None` before acting — a missing bar
+  means untradeable at that timestamp.
+- If the strategy must support Monte Carlo validation, ALSO implement
+  `vectorized_signals(data)` — the vectorized twin MUST be numerically
+  identical to the event form (share one pure signal function, as
+  `crossover_positions` does). Parity is asserted by test.
+
+## Sizing / ML
+
+- Side comes from the primary model; size scaling belongs to meta-labeling
+  (`MetaLabelingStrategy` + `triple_barrier_labels`). Any sklearn-style
+  `fit`/`predict_proba` estimator plugs in.
+- Sizing engines live in `portfolio/sizing.py` (Kelly, vol-parity, gap-stressed
+  optimal-f). Apply `kakushadze_effective_returns` to expected returns BEFORE
+  weight optimization.
+
+## Mandatory validation before trusting a strategy
+
+1. Truncation test (`validation/truncation.py`) — must PASS (leak check).
+2. CPCV (`validation/cpcv.py`) with label-overlap purge + embargo for ML runs.
+3. PBO gate (`validation/pbo.py`) — must be < 0.10 after any parameter sweep.
+4. Log every optimization trial to the Trials Registry, then report DSR
+   (`analytics/dsr.py`) — never hand-feed N or trial variance.
+5. MCPT p-value (`montecarlo/permutation.py`) < 0.05 via the fast-track;
+   run `autocorrelation_gate` first — serial correlation invalidates iid
+   resampling (use block bootstrap / O-U paths instead).

@@ -1,0 +1,33 @@
+---
+description: Consult the Gemini Notebook (22 quant books) before implementing formulas
+alwaysApply: true
+---
+
+# Gemini Notebook: Quant Literature Verification
+
+The user has a Gemini Notebook containing 22 specialist quant-finance books
+(de Prado AFML, Bailey, Masters, Vince, Carver, Kaufman, Chan, Ehlers, etc.).
+The agent may draft a prompt for the user to paste into that notebook to
+extract authoritative formulas, algorithms, and caveats BEFORE implementing or
+modifying any quantitative method.
+
+## When to use it
+
+- Implementing or changing any formula/algorithm (sizing, risk, execution
+  costs, CV/purging, PBO/DSR, Monte Carlo protocols, bar construction).
+- Resolving ambiguity between secondary sources or cross-reference critiques.
+- Auditing an existing module for subtle bias (look-ahead, selection,
+  overfitting).
+
+## How to use it
+
+- Prompts must fit ~3,900 characters: ask for exact equations, algorithm
+  steps, and explicit warnings (e.g., de Prado's "c_t stays external to K_t").
+- After implementing, record verification status in the module docstring:
+  mark formulas as "notebook-verified" vs "not covered by the notebook —
+  implemented from <canonical source>" (see `analytics/dsr.py`,
+  `execution/costs.py`, `montecarlo/permutation.py` for the pattern).
+- Already notebook-verified in this repo: ETF trick + external c_t,
+  label-overlap purging/embargo/CPCV counts, CSCV/PBO rank-logit, Masters
+  p-value + Trend/Bias/Skill partition, Vince HPR/TWR/f*, TIB & imbalance
+  bars, triple-barrier meta-labeling, Carver cost drag + 0.08 SR/yr limit.
