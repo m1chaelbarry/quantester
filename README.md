@@ -38,9 +38,31 @@ permutation testing, drawdown double bootstrap, O-U synthetic paths).
 ```bash
 pip install -e .[dev]
 pytest
-python examples/run_ma_cross.py      # backtest + tearsheet + truncation check
-python examples/run_monte_carlo.py   # Monte Carlo validation suite
+python examples/run_ma_cross.py         # backtest + tearsheet + truncation check
+python examples/run_custom_strategy.py  # build a strategy from scratch (tutorial companion)
+python examples/run_monte_carlo.py      # Monte Carlo validation suite
 ```
+
+## Documentation
+
+Full documentation lives in [`docs/`](docs/README.md):
+
+- [Getting started](docs/getting-started.md) — install, examples, tests
+- [Architecture & core concepts](docs/architecture.md) — the event lifecycle
+  and the temporal firewall
+- [Creating a strategy & backtesting it](docs/tutorials/creating-a-strategy.md) —
+  beginner-friendly step-by-step tutorial
+- [Validation workflow](docs/tutorials/validation-workflow.md) — the five
+  anti-overfitting gates
+- Module references for [data](docs/modules/data.md),
+  [strategy](docs/modules/strategy.md),
+  [portfolio](docs/modules/portfolio.md),
+  [execution](docs/modules/execution.md),
+  [analytics](docs/modules/analytics.md),
+  [validation](docs/modules/validation.md),
+  [Monte Carlo](docs/modules/montecarlo.md) and
+  [utilities](docs/modules/utils.md), plus a
+  [glossary](docs/glossary.md) and [FAQ](docs/faq.md)
 
 ## Source verification status
 
