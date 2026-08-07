@@ -4,3 +4,4 @@ __pycache__/
 .cursor/plans/
 examples/data/
 examples/output/
+examples/*/output/

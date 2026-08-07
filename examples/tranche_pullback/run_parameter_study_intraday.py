@@ -13,8 +13,8 @@ asks whether a wider spacing/stop grid recovers an edge, under the same
 governance gates as the daily study.
 
 Usage:
-  python examples/run_parameter_study_intraday_ccxt.py           # 4h default
-  python examples/run_parameter_study_intraday_ccxt.py --tf 1h   # hourly
+  python examples/tranche_pullback/run_parameter_study_intraday.py           # 4h default
+  python examples/tranche_pullback/run_parameter_study_intraday.py --tf 1h   # hourly
 """
 
 from __future__ import annotations
@@ -23,6 +23,11 @@ import argparse
 import multiprocessing as mp
 import time
 from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+REPO_ROOT = HERE.parents[1]
+DATA_DIR = REPO_ROOT / "examples" / "data"
+OUTPUT_DIR = HERE / "output"
 
 import matplotlib
 
@@ -45,8 +50,6 @@ from quantester.portfolio.risk import DailyDrawdownBreaker
 from quantester.strategy.tranche_pullback import TranchePullbackStrategy
 from quantester.validation.pbo import PBO_GATE, pbo_cscv
 
-DATA_DIR = Path("examples/data")
-OUTPUT_DIR = Path("examples/output")
 SYMBOL = "BTC/USD"
 INITIAL_CAPITAL = 25_000.0
 FRICTION = ConservativeFrictionCostModel(spread_pct=0.0002, fee_rate=0.0004)

@@ -39,10 +39,13 @@ engine, ledger, cost models, and validation gates all behave as specified.
 
 ## Run the bundled examples
 
-### 1. Event-driven backtest: `examples/run_ma_cross.py`
+Examples are grouped **one folder per strategy/demo** — see
+[`examples/README.md`](../examples/README.md).
+
+### 1. Event-driven backtest: `examples/ma_cross/run.py`
 
 ```bash
-python examples/run_ma_cross.py
+python examples/ma_cross/run.py
 ```
 
 This script is the canonical "hello world" of the engine. It:
@@ -55,7 +58,7 @@ This script is the canonical "hello world" of the engine. It:
 3. Computes the **Deflated Sharpe Ratio (DSR)** from the registry so the
    "best" result is honestly deflated by the number of trials tried.
 4. Checks the **Carver cost-drag speed limit**.
-5. Renders a tearsheet to `examples/output/ma_cross_tearsheet.png`.
+5. Renders a tearsheet to `examples/ma_cross/output/ma_cross_tearsheet.png`.
 6. Runs the **truncation test** — the engine's look-ahead leak detector — and
    prints `PASS`.
 
@@ -68,14 +71,14 @@ fast=20 slow=60  sharpe=...  mdd=...  calmar=...
 Best trial: ...
 DSR (N=3 trials, registry-driven): ...
 Carver cost drag: 0.040 SR/yr (within speed limit)
-Tearsheet: examples/output/ma_cross_tearsheet.png
+Tearsheet: examples/ma_cross/output/ma_cross_tearsheet.png
 Truncation test [PASS]: compared ... rows after truncating 30 bars; 0 mismatch(es).
 ```
 
-### 2. Monte Carlo validation: `examples/run_monte_carlo.py`
+### 2. Monte Carlo validation: `examples/monte_carlo/run.py`
 
 ```bash
-python examples/run_monte_carlo.py
+python examples/monte_carlo/run.py
 ```
 
 This runs the five-step Monte Carlo checklist on a backtest:
@@ -92,6 +95,16 @@ This runs the five-step Monte Carlo checklist on a backtest:
 > For production conclusions, raise `N_REPS` to ≥ 1,000, `N_OUTER` to 10,000,
 > and `N_INNER` to 1,000 (the checklist values printed in the script header).
 
+### 3. Multi-coin Donchian dashboard: `examples/donchian_breakout/run_multi_coin_viz.py`
+
+```bash
+python examples/donchian_breakout/run_multi_coin_viz.py \
+  --universe BTC/USD,ETH/USD,XRP/USD --risk-budget 0.02
+```
+
+Daily long-only Donchian across majors with book-level risk budgeting.
+Writes `examples/donchian_breakout/output/multi_coin_dashboard.png`.
+
 ## Project layout
 
 ```
@@ -106,7 +119,7 @@ quantester/
 ├── validation/          # truncation test, PurgedKFold/CPCV, PBO
 ├── montecarlo/          # fast-track, MCPT, resampling, DD bounds, OU paths
 └── utils/               # ETF trick, synthetic OHLCV generator
-examples/                # runnable end-to-end scripts
+examples/                # one folder per strategy/demo (+ shared data/)
 tests/                   # pytest suite mirroring the modules
 docs/                    # this documentation
 ```

@@ -3,7 +3,7 @@
 Backtest -> trade resampling PDF -> MCPT p-value with Trend/Bias/Skill
 partition -> double-bootstrap drawdown bound -> O-U OTR sweep -> diagnostics.
 
-Run from the repo root:  python examples/run_monte_carlo.py
+Run from the repo root:  python examples/monte_carlo/run.py
 Replication counts are set small for a quick demo; raise N_REPS / N_OUTER /
 N_INNER to the checklist values (1,000 / 10,000 / 1,000) for production.
 """

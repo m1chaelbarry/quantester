@@ -1,12 +1,17 @@
 """End-to-end example: synthetic 3-symbol data -> event-driven backtest ->
 tearsheet + truncation check + trials-registry DSR.
 
-Run from the repo root:  python examples/run_ma_cross.py
+Run from the repo root:  python examples/ma_cross/run.py
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+REPO_ROOT = HERE.parents[1]
+DATA_DIR = REPO_ROOT / "examples" / "data"
+OUTPUT_DIR = HERE / "output"
 
 import numpy as np
 from scipy.stats import kurtosis, skew
@@ -28,8 +33,6 @@ from quantester.strategy.examples import MovingAverageCrossStrategy
 from quantester.utils.synthetic import make_synthetic_ohlcv, write_csvs
 from quantester.validation.truncation import run_truncation_test
 
-DATA_DIR = Path("examples/data")
-OUTPUT_DIR = Path("examples/output")
 INITIAL_CAPITAL = 100_000.0
 
 

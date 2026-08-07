@@ -22,7 +22,7 @@ cross-reference:
    edge survive markets with BTC-like short-run structure but shuffled
    regimes?" — NOT "will 2013-2026 repeat".
 
-Run from the repo root:  python examples/run_parameter_study_ccxt.py
+Run from the repo root:  python examples/tranche_pullback/run_parameter_study.py
 (~4 min on 4 cores; set WORKERS=1 to force sequential)
 """
 
@@ -31,6 +31,9 @@ from __future__ import annotations
 import multiprocessing as mp
 import time
 from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+OUTPUT_DIR = HERE / "output"
 
 import numpy as np
 import pandas as pd
@@ -52,15 +55,13 @@ from quantester.portfolio.portfolio import PercentEquitySizer, PortfolioManager
 from quantester.portfolio.risk import DailyDrawdownBreaker
 from quantester.strategy.tranche_pullback import TranchePullbackStrategy
 from quantester.validation.pbo import PBO_GATE, pbo_cscv
-from run_tranche_pullback_ccxt import (
+from run_ccxt import (
     FRICTION,
     INITIAL_CAPITAL,
     PERIODS,
     SYMBOL,
     load_or_fetch,
 )
-
-OUTPUT_DIR = Path("examples/output")
 
 GRID_SPACINGS = (0.75, 1.0, 1.25, 1.5, 1.75, 2.0)
 GRID_STOPS = (4.5, 5.0, 6.0, 7.5)

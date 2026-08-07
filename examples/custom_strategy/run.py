@@ -4,12 +4,15 @@ Follows docs/tutorials/creating-a-strategy.md step by step: synthetic data ->
 custom Strategy subclass -> PercentEquitySizer -> cost-adjusted execution ->
 tearsheet -> truncation test -> fast-track parity -> MCPT.
 
-Run from the repo root:  python examples/run_custom_strategy.py
+Run from the repo root:  python examples/custom_strategy/run.py
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+OUTPUT_DIR = HERE / "output"
 
 import numpy as np
 
@@ -27,7 +30,6 @@ from quantester.strategy.base import Strategy
 from quantester.utils.synthetic import make_synthetic_ohlcv
 from quantester.validation.truncation import run_truncation_test
 
-OUTPUT_DIR = Path("examples/output")
 INITIAL_CAPITAL = 100_000.0
 N_REPS = 200  # demo-scale; use >= 1,000 for production conclusions
 

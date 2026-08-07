@@ -65,6 +65,7 @@ returning the **target position** (signed). Wire it via
 | --- | --- |
 | `PercentEquitySizer(pct=0.5)` | `± pct × equity × strength / ref_price` (0 on `EXIT`). Compounds with account size. |
 | `FixedUnitSizer(units=100.0)` | `± units × strength` shares. Used for fast-track parity checks. |
+| `FractionalRiskSizer(risk_fraction=0.02)` | `± equity × risk_fraction / stop_distance`. Requires `signal.stop_distance` in price units (e.g. `2 × ATR`). A full stop-out loses ~`risk_fraction` of equity before friction. |
 
 Custom example — cap position by both equity fraction and a volatility target:
 

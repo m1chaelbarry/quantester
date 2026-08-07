@@ -16,14 +16,17 @@ Safeguards demonstrated:
 This synthetic GBM path is a PLUMBING demo (fills, latching, breaker,
 truncation check) — GBM has no mean-reversion edge, so churn pays only
 friction here. The real-data profitability evaluation lives in
-examples/run_tranche_pullback_ccxt.py.
+examples/tranche_pullback/run_ccxt.py.
 
-Run from the repo root:  python examples/run_tranche_pullback.py
+Run from the repo root:  python examples/tranche_pullback/run.py
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+OUTPUT_DIR = HERE / "output"
 
 import numpy as np
 import pandas as pd
@@ -40,7 +43,6 @@ from quantester.strategy.tranche_pullback import TranchePullbackStrategy
 from quantester.utils.synthetic import make_synthetic_ohlcv
 from quantester.validation.truncation import run_truncation_test
 
-OUTPUT_DIR = Path("examples/output")
 INITIAL_CAPITAL = 25_000.0  # small-account flavor
 SYMBOL = "BTC"
 FRICTION = ConservativeFrictionCostModel(

@@ -113,11 +113,62 @@ engine = BacktestEngine(handler, TranchePullbackStrategy(handler, "BTC/USD"),
                         SimulatedExecutionHandler(ConservativeFrictionCostModel()))
 ```
 
-Full evaluation on real CCXT data: `examples/run_tranche_pullback_ccxt.py`;
+Full evaluation on real CCXT data: `examples/tranche_pullback/run_ccxt.py`;
 parameter study with PBO/DSR gating and bootstrap MC:
-`examples/run_parameter_study_ccxt.py` (daily) and
-`examples/run_parameter_study_intraday_ccxt.py --tf 4h|1h` (calendar-scaled
-intraday ports).
+`examples/tranche_pullback/run_parameter_study.py` (daily) and
+`examples/tranche_pullback/run_parameter_study_intraday.py --tf 4h|1h`
+(calendar-scaled intraday ports).
+
+## Donchian breakout
+
+`quantester/strategy/donchian_breakout.py`.
+
+### `DonchianBreakoutStrategy(data_handler, symbol, regime_window=200, entry_window=20, trail_window=10, exit_window=20, atr_window=14, adx_window=14, adx_threshold=25.0, stop_atr_mult=2.0, risk_fraction=0.02, long_only=False)`
+
+SMA-gated Donchian breakout with an ADX intensity filter. Windows are
+bar-counts (daily or hourly). The **survivable** configuration from the
+Bitstamp study is **daily + `long_only=True`** with a book-level risk budget;
+hourly both-sides BTC is friction-dominated (kept as a negative control).
+
+- **Regime gate**: long while `close > SMA(regime_window)`; short while
+  `close < SMA(regime_window)` (shorts disabled when `long_only=True`).
+- **Entry boundaries**: prior-`entry_window` Donchian channel
+  (`max(high_{t-1..t-N})` / `min(low_{t-1..t-N})`) — the signal bar is
+  excluded from its own channel.
+- **ADX filter**: new entries require `ADX(adx_window) > adx_threshold`.
+- **Delay-1**: signals at close T fill at open T+1.
+- **Sizing**: emits `SignalEvent.stop_distance = stop_atr_mult × ATR`; wire
+  `FractionalRiskSizer(risk_fraction)`. For multi-coin books set
+  `risk_fraction = book_budget / N` so concurrent breakouts cannot stack.
+- **Exits**: `SMA(exit_window)` mean reversion; opposite Donchian trail;
+  protective floor at entry ∓ `stop_atr_mult × ATR` (Kaufman MOC).
+- No vectorized twin — validate with Protocol II MCPT / block-bootstrap.
+
+```python
+from quantester.strategy.donchian_breakout import DonchianBreakoutStrategy
+from quantester.portfolio.portfolio import FractionalRiskSizer, PortfolioManager
+from quantester.execution.costs import ConservativeFrictionCostModel
+
+# Multi-coin: one strategy instance per symbol, shared handler + risk budget.
+symbols = ["BTC/USD", "ETH/USD", "XRP/USD"]
+risk_per_name = 0.02 / len(symbols)
+strategies = [
+    DonchianBreakoutStrategy(handler, s, long_only=True) for s in symbols
+]
+portfolio = PortfolioManager(handler, 100_000.0,
+                             sizer=FractionalRiskSizer(risk_per_name))
+engine = BacktestEngine(handler, strategies, portfolio,
+                        SimulatedExecutionHandler(ConservativeFrictionCostModel()))
+```
+
+Examples live under [`examples/donchian_breakout/`](../../examples/donchian_breakout/):
+
+| Script | Role |
+| --- | --- |
+| `run_multi_coin_viz.py` | Daily multi-coin dashboard (recommended) |
+| `run_multi_coin.py` | Same book without charts |
+| `run_mcpt.py` / `run_viz.py` | Hourly BTC MCPT + charts (negative result) |
+| `run.py` / `run_ccxt.py` | Synthetic / hourly CCXT smoke tests |
 
 ## Meta-labeling
 

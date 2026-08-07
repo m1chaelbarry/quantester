@@ -182,7 +182,7 @@ that history will repeat. Seeded via `numpy.random.Generator`.
 Protocol endorsed by the notebook cross-reference (Masters' stationary /
 tapered block bootstrap; de Prado's sequential bootstrap as the alternative);
 implemented from the canonical Politis-Romano (1994) source. See
-`examples/run_parameter_study_ccxt.py` for the full harness
+`examples/tranche_pullback/run_parameter_study.py` for the full harness
 (autocorrelation gate → bootstrap paths → per-path engine re-runs →
 no-edge probability and same-path buy-and-hold benchmark).
 
