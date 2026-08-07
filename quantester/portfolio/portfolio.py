@@ -18,6 +18,8 @@ from ..events import (
     LIMIT_ORDER,
     LONG,
     MARKET_ORDER,
+    MOC_ORDER,
+    OPEN,
     SELL,
     SHORT,
     OrderEvent,
@@ -56,13 +58,26 @@ class PercentEquitySizer:
 class PortfolioManager(Portfolio):
     def __init__(self, data_handler, initial_capital: float = 100_000.0,
                  sizer=None, margin_monitor: MarginMonitor | None = None,
-                 drawdown_breaker: DailyDrawdownBreaker | None = None):
+                 drawdown_breaker: DailyDrawdownBreaker | None = None,
+                 cash_yield_rate: float = 0.0, idle_cash_fraction: float = 0.5):
+        if cash_yield_rate < 0:
+            raise ValueError("cash_yield_rate must be non-negative")
+        if not 0.0 <= idle_cash_fraction <= 1.0:
+            raise ValueError("idle_cash_fraction must lie in [0, 1]")
         self.data_handler = data_handler
         self.initial_capital = float(initial_capital)
         self.cash = float(initial_capital)
         self.sizer = sizer or PercentEquitySizer(0.5)
         self.margin_monitor = margin_monitor
         self.drawdown_breaker = drawdown_breaker
+        # Idle-cash yield (notebook-verified): Kaufman accrues HALF the 3-month
+        # T-bill rate on unallocated cash while flat (TSM ch. 8); Carver
+        # requires including the risk-free rate on undeployed cash in
+        # non-derivative backtests (Systematic Trading ch. 12). Effective
+        # annualized rate on positive cash = cash_yield_rate * idle_cash_fraction.
+        self.cash_yield_rate = float(cash_yield_rate)
+        self.idle_cash_fraction = float(idle_cash_fraction)
+        self._last_valuation_ts = None
 
         self.positions: dict = {}
         self.last_prices: dict = {}
@@ -124,6 +139,12 @@ class PortfolioManager(Portfolio):
             # open until filled), so strategy exits are redundant; dropping
             # them also prevents a duplicate flatten from overselling short.
             return
+        if getattr(signal, "fill_at", OPEN) == "close" and signal.delay < 1:
+            raise ValueError(
+                "fill_at='close' (market-on-close) is only valid for "
+                "close-phase strategies (delay >= 1); a delay=0 MOC fill "
+                "would trade a close print before it exists."
+            )
         if getattr(signal, "cancel_orders", False):
             # Book purge requested (e.g. tranche ladders on EXIT): resting
             # orders must not survive the exit and re-enter on their own. The
@@ -146,10 +167,21 @@ class PortfolioManager(Portfolio):
         delta = target - current
         if abs(delta) < 1e-12:
             return
-        fill_time = self.data_handler.timestamp_at_offset(signal.timestamp, signal.delay)
-        if fill_time is None:
-            return  # no future bar exists to fill on (end of data)
-        order_type = LIMIT_ORDER if signal.limit_price is not None else MARKET_ORDER
+        fill_at_close = getattr(signal, "fill_at", OPEN) == "close"
+        if fill_at_close:
+            fill_time = signal.timestamp  # this bar's close auction
+        else:
+            fill_time = self.data_handler.timestamp_at_offset(
+                signal.timestamp, signal.delay
+            )
+            if fill_time is None:
+                return  # no future bar exists to fill on (end of data)
+        if fill_at_close:
+            order_type = MOC_ORDER
+        elif signal.limit_price is not None:
+            order_type = LIMIT_ORDER
+        else:
+            order_type = MARKET_ORDER
         events_queue.put(
             OrderEvent(
                 timestamp=signal.timestamp,
@@ -222,7 +254,23 @@ class PortfolioManager(Portfolio):
 
     # --------------------------------------------------------------- valuation
 
+    def _accrue_cash_yield(self, timestamp):
+        """Accrue the idle-cash yield on positive cash between valuations
+        (Kaufman half-T-bill / Carver risk-free inclusion; notebook-verified).
+        No borrow charge on negative cash — documented simplification."""
+        if (
+            self._last_valuation_ts is not None
+            and self.cash > 0
+            and self.cash_yield_rate > 0
+        ):
+            days = (timestamp - self._last_valuation_ts).total_seconds() / 86400.0
+            if days > 0:
+                effective = self.cash_yield_rate * self.idle_cash_fraction
+                self.cash += self.cash * effective * days / 365.0
+        self._last_valuation_ts = timestamp
+
     def update_portfolio_valuation(self, market_event, events_queue=None):
+        self._accrue_cash_yield(market_event.timestamp)
         for symbol, bar in market_event.bars.items():
             if bar is not None:
                 self.last_prices[symbol] = float(bar["close"])
