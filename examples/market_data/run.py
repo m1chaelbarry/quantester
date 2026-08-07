@@ -1,7 +1,7 @@
 """End-to-end example: free real market data (yfinance + ccxt) -> event-driven
 backtest with the same temporal firewall as the CSV feed.
 
-Run from the repo root:  python examples/run_market_data.py
+Run from the repo root:  python examples/market_data/run.py
 
 Requires the optional data extras and network access:
     pip install "quantester[data]"

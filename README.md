@@ -38,20 +38,19 @@ permutation testing, drawdown double bootstrap, O-U synthetic paths).
 ```bash
 pip install -e .[dev]
 pytest
-python examples/run_ma_cross.py         # backtest + tearsheet + truncation check
-python examples/run_custom_strategy.py  # build a strategy from scratch (tutorial companion)
-python examples/run_monte_carlo.py      # Monte Carlo validation suite
-python examples/run_visualizations.py   # chart gallery + interactive viewer demo
-python examples/run_tranche_pullback.py        # BTC tranche pullback ladder (synthetic)
-python examples/run_tranche_pullback_ccxt.py   # ... on real CCXT BTC data + audits
-python examples/run_donchian_breakout.py       # hourly Donchian+ADX breakout (synthetic)
-python examples/run_donchian_breakout_ccxt.py  # ... on real CCXT BTC 1h data
-python examples/run_donchian_breakout_mcpt.py  # real 1h backtest + Protocol II MCPT
-python examples/run_donchian_breakout_viz.py   # candles / equity / trades / rolling charts
-python examples/run_parameter_study_ccxt.py    # parameter grid + PBO/DSR + bootstrap MC
-python examples/run_parameter_study_intraday_ccxt.py --tf 4h  # same on 4h/1h
+python examples/ma_cross/run.py              # backtest + tearsheet + truncation
+python examples/custom_strategy/run.py       # build a strategy from scratch
+python examples/monte_carlo/run.py           # Monte Carlo validation suite
+python examples/visualizations/run.py        # chart gallery + interactive viewer
+python examples/tranche_pullback/run.py      # BTC tranche pullback (synthetic)
+python examples/tranche_pullback/run_ccxt.py # ... on real CCXT BTC + audits
+python examples/donchian_breakout/run_multi_coin_viz.py   # daily multi-coin dashboard
+python examples/donchian_breakout/run_mcpt.py             # hourly MCPT (negative result)
+python examples/tranche_pullback/run_parameter_study.py
+python examples/tranche_pullback/run_parameter_study_intraday.py --tf 4h
 ```
 
+See [`examples/README.md`](examples/README.md) for the full per-strategy layout.
 ## Visualization
 
 `quantester/visualization` renders post-run artifacts (bars, indicators,
@@ -96,7 +95,7 @@ availability-mask semantics are identical regardless of source:
   (`pip install "quantester[ccxt]"`, or `quantester[data]` for both).
 
 ```bash
-python examples/run_market_data.py   # live-data backtest via yfinance + ccxt
+python examples/market_data/run.py   # live-data backtest via yfinance + ccxt
 ```
 
 ## Documentation

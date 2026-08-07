@@ -4,7 +4,7 @@ Builds a trending synthetic hourly path, runs DonchianBreakoutStrategy under
 delay=1 with FractionalRiskSizer (2% equity to the 2×ATR stop) and the
 ConservativeFrictionCostModel, then prints a short performance summary.
 
-Run from the repo root:  python examples/run_donchian_breakout.py
+Run from the repo root:  python examples/donchian_breakout/run.py
 
 For real CCXT hourly BTC evaluation see run_donchian_breakout_ccxt.py.
 """
@@ -12,6 +12,9 @@ For real CCXT hourly BTC evaluation see run_donchian_breakout_ccxt.py.
 from __future__ import annotations
 
 from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+OUTPUT_DIR = HERE / "output"
 
 import pandas as pd
 
@@ -26,7 +29,6 @@ from quantester.strategy.donchian_breakout import DonchianBreakoutStrategy
 from quantester.utils.synthetic import make_synthetic_ohlcv
 from quantester.validation.truncation import run_truncation_test
 
-OUTPUT_DIR = Path("examples/output")
 SYMBOL = "BTC/USD"
 INITIAL_CAPITAL = 25_000.0
 PERIODS = 24 * 365  # hourly crypto calendar

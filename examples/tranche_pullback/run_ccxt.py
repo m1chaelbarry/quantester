@@ -20,12 +20,17 @@ NOTE: a single realized path cannot establish statistical significance. The
 strategy has no closed-form vectorized twin, so MCPT fast-track validation
 is unavailable; treat the results as descriptive evidence, not proof of edge.
 
-Run from the repo root:  python examples/run_tranche_pullback_ccxt.py
+Run from the repo root:  python examples/tranche_pullback/run_ccxt.py
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+REPO_ROOT = HERE.parents[1]
+DATA_DIR = REPO_ROOT / "examples" / "data"
+OUTPUT_DIR = HERE / "output"
 
 import numpy as np
 import pandas as pd
@@ -55,8 +60,6 @@ from quantester.strategy.tranche_pullback import TranchePullbackStrategy
 from quantester.validation.pbo import pbo_cscv
 from quantester.validation.truncation import run_truncation_test
 
-DATA_DIR = Path("examples/data")
-OUTPUT_DIR = Path("examples/output")
 CACHE = DATA_DIR / "BTCUSD_bitstamp_1d.csv"
 SYMBOL = "BTC/USD"
 INITIAL_CAPITAL = 25_000.0

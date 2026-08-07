@@ -10,14 +10,19 @@ Runs the event-driven backtest on cached Bitstamp 1h BTC/USD, then renders:
   7. Interactive viewer headless snapshot (zoom on recent activity)
 
 Run from the repo root:
-  python examples/run_donchian_breakout_viz.py
-  python examples/run_donchian_breakout_viz.py --bars 2500 --candle-bars 600
+  python examples/donchian_breakout/run_viz.py
+  python examples/donchian_breakout/run_viz.py --bars 2500 --candle-bars 600
 """
 
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+REPO_ROOT = HERE.parents[1]
+DATA_DIR = REPO_ROOT / "examples" / "data"
+OUTPUT_DIR = HERE / "output"
 
 import pandas as pd
 
@@ -38,8 +43,6 @@ from quantester.visualization import (
     trade_stats,
 )
 
-DATA_DIR = Path("examples/data")
-OUTPUT_DIR = Path("examples/output")
 CACHE = DATA_DIR / "BTCUSD_bitstamp_1h.csv"
 SYMBOL = "BTC/USD"
 INITIAL_CAPITAL = 25_000.0
@@ -220,7 +223,7 @@ def main():
     viewer.pan(-0.25)
     viewer.save(out)
     print(f"7. {out} (headless snapshot)")
-    print("\nCharts written under examples/output/. "
+    print("\nCharts written under examples/donchian_breakout/output/. "
           "For live scroll/zoom, run locally with QtAgg/TkAgg and viewer.show().")
 
 

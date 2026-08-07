@@ -29,7 +29,9 @@ Mathematical model (all levels from closes/highs/lows under the firewall):
   at the next open (delay=1).
 - Mean-reversion exit: Close_t crosses back through SMA_20 → EXIT delay=1.
 - Fractional sizing: q = (E × risk_fraction) / (stop_atr_mult × ATR_14) via
-  `FractionalRiskSizer` reading `SignalEvent.stop_distance`.
+  `FractionalRiskSizer` reading `SignalEvent.stop_distance`. For multi-coin
+  books set risk_fraction = book_budget / N so concurrent names cannot stack
+  full per-name risk. `long_only=True` disables short entries.
 
 State machine (FLAT / ENTERING_* / LONG / SHORT / EXITING) mirrors the
 execution ledger: ENTERING latches the protective stop from the fill bar's
@@ -60,7 +62,11 @@ EXITING = "exiting"
 
 
 class DonchianBreakoutStrategy(Strategy):
-    """SMA-gated Donchian breakout with ADX filter; delay=1, both sides."""
+    """SMA-gated Donchian breakout with ADX filter; delay=1.
+
+    Set ``long_only=True`` to suppress short entries (recommended for BTC
+    and multi-coin daily sleeves).
+    """
 
     def __init__(
         self,
@@ -75,6 +81,7 @@ class DonchianBreakoutStrategy(Strategy):
         adx_threshold: float = 25.0,
         stop_atr_mult: float = 2.0,
         risk_fraction: float = 0.02,
+        long_only: bool = False,
     ):
         if regime_window < 2:
             raise ValueError("regime_window must be >= 2")
@@ -100,6 +107,7 @@ class DonchianBreakoutStrategy(Strategy):
         self.adx_threshold = float(adx_threshold)
         self.stop_atr_mult = float(stop_atr_mult)
         self.risk_fraction = float(risk_fraction)
+        self.long_only = bool(long_only)
         self.delay = 1
 
         # ADX needs two Wilder passes (~2× window) after the first TR bar.
@@ -215,7 +223,12 @@ class DonchianBreakoutStrategy(Strategy):
             strong = adx_t > self.adx_threshold
             if strong and close_t > upper and close_t > sma_regime:
                 self._emit_entry(event.timestamp, events_queue, "long", atr_t)
-            elif strong and close_t < lower and close_t < sma_regime:
+            elif (
+                not self.long_only
+                and strong
+                and close_t < lower
+                and close_t < sma_regime
+            ):
                 self._emit_entry(event.timestamp, events_queue, "short", atr_t)
             return
 

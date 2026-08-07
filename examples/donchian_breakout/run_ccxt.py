@@ -8,12 +8,17 @@ net vs gross, buy-and-hold benchmark, and a truncation leak check.
 The indicator windows are the notebook/spec hourly values (SMA200 hours,
 Donchian 20 hours, ADX/ATR 14 hours) — not calendar-scaled day ports.
 
-Run from the repo root:  python examples/run_donchian_breakout_ccxt.py
+Run from the repo root:  python examples/donchian_breakout/run_ccxt.py
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+REPO_ROOT = HERE.parents[1]
+DATA_DIR = REPO_ROOT / "examples" / "data"
+OUTPUT_DIR = HERE / "output"
 
 import pandas as pd
 
@@ -32,8 +37,6 @@ from quantester.strategy.donchian_breakout import DonchianBreakoutStrategy
 from quantester.strategy.examples import BuyAndHoldStrategy
 from quantester.validation.truncation import run_truncation_test
 
-DATA_DIR = Path("examples/data")
-OUTPUT_DIR = Path("examples/output")
 CACHE = DATA_DIR / "BTCUSD_bitstamp_1h.csv"
 SYMBOL = "BTC/USD"
 INITIAL_CAPITAL = 25_000.0

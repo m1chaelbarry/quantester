@@ -13,9 +13,9 @@ flags serial correlation, treat iid-style conclusions with care (block
 bootstrap remains available via the parameter-study scripts).
 
 Usage:
-  python examples/run_donchian_breakout_mcpt.py
-  python examples/run_donchian_breakout_mcpt.py --bars 2500 --reps 200 --workers 4
-  python examples/run_donchian_breakout_mcpt.py --full-history
+  python examples/donchian_breakout/run_mcpt.py
+  python examples/donchian_breakout/run_mcpt.py --bars 2500 --reps 200 --workers 4
+  python examples/donchian_breakout/run_mcpt.py --full-history
 """
 
 from __future__ import annotations
@@ -24,6 +24,11 @@ import argparse
 import multiprocessing as mp
 import time
 from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+REPO_ROOT = HERE.parents[1]
+DATA_DIR = REPO_ROOT / "examples" / "data"
+OUTPUT_DIR = HERE / "output"
 
 import matplotlib
 
@@ -56,8 +61,6 @@ from quantester.portfolio.portfolio import (
 from quantester.strategy.donchian_breakout import DonchianBreakoutStrategy
 from quantester.strategy.examples import BuyAndHoldStrategy
 
-DATA_DIR = Path("examples/data")
-OUTPUT_DIR = Path("examples/output")
 CACHE = DATA_DIR / "BTCUSD_bitstamp_1h.csv"
 SYMBOL = "BTC/USD"
 INITIAL_CAPITAL = 25_000.0

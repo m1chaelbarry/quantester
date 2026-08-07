@@ -11,8 +11,8 @@ fades, we exit. Simple enough to understand completely, real enough to show
 every part of the engine.
 
 **Companion script:** every snippet below is assembled, ready to run, in
-[`examples/run_custom_strategy.py`](../../examples/run_custom_strategy.py).
-Run `python examples/run_custom_strategy.py` from the repo root at any point
+[`examples/custom_strategy/run.py`](../../examples/custom_strategy/run.py).
+Run `python examples/custom_strategy/run.py` from the repo root at any point
 to check your work.
 
 **Prerequisites:** [installation done and tests green](../getting-started.md).
@@ -252,7 +252,7 @@ annualized return by that drawdown.
 ```python
 from quantester.analytics.tearsheet import generate_tearsheet
 
-stats = generate_tearsheet(equity, "examples/output/momentum_tearsheet.png",
+stats = generate_tearsheet(equity, "examples/custom_strategy/output/momentum_tearsheet.png",
                            title="Momentum(20) on AAA")
 ```
 
@@ -297,7 +297,7 @@ here is the short version you can run today:
    and picked the best, that best is inflated by selection. Log every trial to
    the `TrialsRegistry` and report the **Deflated Sharpe Ratio**, which
    deflates the observed Sharpe by the number of things you tried. See
-   `examples/run_ma_cross.py` for a complete sweep-log-DSR loop.
+   `examples/ma_cross/run.py` for a complete sweep-log-DSR loop.
 2. **PBO gate.** After any parameter sweep, the CSCV Probability of Backtest
    Overfitting must be `< 0.10`.
 3. **MCPT.** Retrain the strategy on thousands of permuted price paths; the
@@ -310,10 +310,10 @@ here is the short version you can run today:
 ## The complete script
 
 Everything above, assembled and runnable, is in
-[`examples/run_custom_strategy.py`](../../examples/run_custom_strategy.py):
+[`examples/custom_strategy/run.py`](../../examples/custom_strategy/run.py):
 
 ```bash
-python examples/run_custom_strategy.py
+python examples/custom_strategy/run.py
 ```
 
 Expected console output (deterministic — the data generator is seeded):
@@ -324,7 +324,7 @@ Quantester tutorial: momentum strategy from scratch
 ========================================================================
 Backtest: total return -14.17%  sharpe -0.394  max DD -28.37%  calmar -0.176
 Trades: 44 round-trips, 88 fills
-Tearsheet written to examples/output/momentum_tearsheet.png
+Tearsheet written to examples/custom_strategy/output/momentum_tearsheet.png
 Truncation test [PASS]: compared 720 rows after truncating 30 bars; 0 mismatch(es).
 Fast-track parity: max |equity diff| = 4.37e-10
 MCPT p-value (200 reps): 1.0000 (not significant)
@@ -363,5 +363,5 @@ machinery to light up green.
 - Feed **dollar bars or imbalance bars** instead of time bars:
   [data reference](../modules/data.md#information-driven-bars).
 - Run the **full Monte Carlo suite**:
-  `python examples/run_monte_carlo.py` and the
+  `python examples/monte_carlo/run.py` and the
   [Monte Carlo reference](../modules/montecarlo.md).

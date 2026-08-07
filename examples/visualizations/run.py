@@ -12,12 +12,15 @@ Runs one MA-cross backtest, then renders:
   8. interactive viewer snapshot (headless); run with an interactive backend
      (Qt/Tk, or `%matplotlib widget` in a notebook) to scroll, zoom, and pan
 
-Run from the repo root:  python examples/run_visualizations.py
+Run from the repo root:  python examples/visualizations/run.py
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+OUTPUT_DIR = HERE / "output"
 
 from quantester.data.csv_handler import HistoricCSVDataHandler
 from quantester.engine import BacktestEngine
@@ -38,7 +41,6 @@ from quantester.visualization import (
     plot_trade_analysis,
 )
 
-OUTPUT_DIR = Path("examples/output")
 INITIAL_CAPITAL = 100_000.0
 
 
