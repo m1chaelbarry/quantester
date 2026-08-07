@@ -92,6 +92,7 @@ fractions/weights *outside* the event loop (e.g. to calibrate a sizer):
 | `twr(trades, f, worst_loss)` | Terminal Wealth Relative: Π HPR (0 if any HPR ≤ 0 — ruin). |
 | `optimal_f(trades, worst_loss=None, gap_stress=1.5, f_max=1.0)` | `f* = argmax TWR(f)` over `[0, f_max]`. `worst_loss` defaults to the historical worst loss × `gap_stress` — stressed *below* the nominal stop because stops do not guarantee fills through gaps (and unconstrained optimal-f is catastrophically sensitive to the max-loss estimate). Returns `f_max` when there are no losing trades. |
 | `kakushadze_effective_returns(expected, linear_costs)` | `E_eff = sign(E)·max(|E| − τ, 0)` — apply to expected returns **before** weight optimization so edges smaller than linear costs are zeroed. |
+| `letf_equity_fraction(base_fraction=1.0, leverage=2.0)` | Kaufman: `base_fraction / leverage` so an x2 LETF is sized at half equity and dollar-vol matches an unlevered book. Use with `PercentEquitySizer(...)`. |
 
 ## Risk overlays
 

@@ -170,6 +170,41 @@ Examples live under [`examples/donchian_breakout/`](../../examples/donchian_brea
 | `run_mcpt.py` / `run_viz.py` | Hourly BTC MCPT + charts (negative result) |
 | `run.py` / `run_ccxt.py` | Synthetic / hourly CCXT smoke tests |
 
+## LETF dual EMA + Kakushadze Δ
+
+`quantester/strategy/letf_dual_ema.py`.
+
+### `LetfDualEmaDeltaStrategy(data_handler, symbol, fast=10, slow=30, delta=0.02, delay=1)`
+
+Long-only trend follower for a **single x2 leveraged ETF**. Dual EMA golden
+cross / death cross plus a daily Kakushadze Δ protective filter — buy-and-hold
+is inefficient on LETFs because daily rebalancing creates volatility drag in
+chop.
+
+- **Entry**: `EMA(fast)` crosses above `EMA(slow)` (span EMA, `adjust=False`).
+- **Trend exit**: `EMA(fast)` crosses below `EMA(slow)`.
+- **Δ stop**: while long, if `close_t < (1 − Δ) · close_{t−1}` emit `EXIT`
+  (delay=1). Default `Δ = 0.02` for x2. Re-entry requires a **fresh golden
+  cross** (not merely `EMA_fast > EMA_slow`).
+- **Sizing**: Kaufman — doubled price vol → half size. Wire
+  `PercentEquitySizer(letf_equity_fraction(1.0, leverage=2.0))` (50% equity).
+- Shares `dual_ema_delta_positions(close, …)` with its vectorized twin.
+
+```python
+from quantester.strategy.letf_dual_ema import LetfDualEmaDeltaStrategy
+from quantester.portfolio.sizing import letf_equity_fraction
+from quantester.portfolio.portfolio import PercentEquitySizer, PortfolioManager
+
+portfolio = PortfolioManager(
+    handler, 100_000.0,
+    sizer=PercentEquitySizer(letf_equity_fraction(1.0, leverage=2.0)),
+)
+engine = BacktestEngine(
+    handler, LetfDualEmaDeltaStrategy(handler, "ETFBW20LV"),
+    portfolio, SimulatedExecutionHandler(CostModel()),
+)
+```
+
 ## Meta-labeling
 
 `quantester/strategy/meta_labeling.py` — the AFML ch. 3 scaffold.

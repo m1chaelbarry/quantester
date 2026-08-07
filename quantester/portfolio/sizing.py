@@ -93,3 +93,17 @@ def kakushadze_effective_returns(expected: pd.Series, linear_costs: pd.Series) -
     expected, linear_costs = expected.align(linear_costs, fill_value=0.0)
     magnitude = (expected.abs() - linear_costs.abs()).clip(lower=0.0)
     return np.sign(expected) * magnitude
+
+
+def letf_equity_fraction(base_fraction: float = 1.0, leverage: float = 2.0) -> float:
+    """Kaufman: doubled price volatility → halve position size.
+
+    For an x2 LETF, ``PercentEquitySizer(letf_equity_fraction(1.0, 2.0))``
+    (i.e. 50% equity) keeps the book's dollar volatility comparable to a
+    full-size position in the unlevered underlying ETF.
+    """
+    if base_fraction <= 0.0:
+        raise ValueError("base_fraction must be positive")
+    if leverage <= 0.0:
+        raise ValueError("leverage must be positive")
+    return float(base_fraction) / float(leverage)
