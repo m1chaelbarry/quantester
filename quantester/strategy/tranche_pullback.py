@@ -26,13 +26,16 @@ Mathematical model (all levels in price terms, computed from closes):
   the target AT the limit price, so wire the PortfolioManager with
   PercentEquitySizer(1.0) for exact spec mapping (pct scales total deployment).
 - Latching state machine: while no tranche is filled the ladder RE-ANCHORS
-  every bar to the current peak/ATR (cancel + replace), so the system always
-  buys a dip from the current peak rather than a stale one. The moment the
-  first tranche fills, the live levels FREEZE: the latched P_peak and ATR_14
-  govern the remaining tranche entries, the exit and the stop until the
-  position is completely closed (the spec's Flat -> Active transition is read
-  as flat -> position-open; a ladder that never fills must refresh, otherwise
-  a runaway market strands the capital at a dead anchor forever).
+  every `reanchor_every` bars to the current peak/ATR (cancel + replace), so
+  the system always buys a dip from a current peak rather than a stale one.
+  Default `reanchor_every=1` matches daily data (refresh every bar). On
+  intraday data set it to bars-per-day so the ladder refreshes once per
+  calendar day while fills and stops still resolve on every bar. The moment
+  the first tranche fills, the live levels FREEZE: the latched P_peak and
+  ATR_14 govern the remaining tranche entries, the exit and the stop until
+  the position is completely closed (the spec's Flat -> Active transition is
+  read as flat -> position-open; a ladder that never fills must refresh,
+  otherwise a runaway market strands the capital at a dead anchor forever).
 - Mean-reversion exit: once any tranche is filled, close all tranches (market,
   next bar's open) when close_t >= SMA_5(t).
 - Hard stop at P_peak - 5.0 * ATR_14, executed per Kaufman's close-execution
@@ -99,13 +102,18 @@ class TranchePullbackStrategy(Strategy):
                  peak_window: int = 20, atr_window: int = 14,
                  atr_spacing: float = 1.5,
                  tranche_fractions: tuple = (0.25, 0.35, 0.40),
-                 exit_window: int = 5, stop_atr_mult: float = 5.0):
+                 exit_window: int = 5, stop_atr_mult: float = 5.0,
+                 reanchor_every: int = 1, cooldown_bars: int = 0):
         if not tranche_fractions or any(f <= 0 for f in tranche_fractions):
             raise ValueError("tranche_fractions must be positive")
         if abs(sum(tranche_fractions) - 1.0) > 1e-9:
             raise ValueError("tranche_fractions must sum to 1.0")
         if atr_spacing <= 0 or stop_atr_mult <= atr_spacing * len(tranche_fractions):
             raise ValueError("stop must sit wider than the deepest tranche")
+        if reanchor_every < 1:
+            raise ValueError("reanchor_every must be >= 1")
+        if cooldown_bars < 0:
+            raise ValueError("cooldown_bars must be >= 0")
         self.data_handler = data_handler
         self.symbol = symbol
         self.regime_window = int(regime_window)
@@ -115,6 +123,15 @@ class TranchePullbackStrategy(Strategy):
         self.tranche_fractions = tuple(float(f) for f in tranche_fractions)
         self.exit_window = int(exit_window)
         self.stop_atr_mult = float(stop_atr_mult)
+        # Bars between ladder re-anchors while hunting. On daily data leave at
+        # 1 (every bar). On intraday data set to bars-per-day so the ladder
+        # refreshes once per calendar day while fills/stops still resolve on
+        # every bar — the higher-resolution benefit without hourly churn.
+        self.reanchor_every = int(reanchor_every)
+        # Bars to stay flat after an exit before re-arming. On daily data leave
+        # at 0 (next bar = next day). On intraday ports set to bars-per-day - 1
+        # so a same-day stop/exit cannot immediately re-enter.
+        self.cooldown_bars = int(cooldown_bars)
         self.delay = 1  # signals at close T, orders live from bar T+1
 
         self._history = max(
@@ -128,6 +145,8 @@ class TranchePullbackStrategy(Strategy):
         self._stop = None
         self._filled: list = []
         self._latched_at = None
+        self._bars_since_anchor = 0
+        self._cooldown_remaining = 0
 
     # ------------------------------------------------------------- state I/O
 
@@ -148,6 +167,7 @@ class TranchePullbackStrategy(Strategy):
         self._stop = peak - self.stop_atr_mult * atr_value
         self._filled = [False] * len(self.tranche_fractions)
         self._latched_at = timestamp
+        self._bars_since_anchor = 0
         self._state = ACTIVE
         pending_cancel = cancel_first
         for fraction, threshold in zip(self.tranche_fractions, self._thresholds):
@@ -174,6 +194,8 @@ class TranchePullbackStrategy(Strategy):
         self._stop = None
         self._filled = []
         self._latched_at = None
+        self._bars_since_anchor = 0
+        # _cooldown_remaining is intentionally preserved across reset
 
     def _mark_fills(self, timestamp, low: float):
         """Mirror the execution ledger: tranche k fills once a bar's low
@@ -208,10 +230,13 @@ class TranchePullbackStrategy(Strategy):
 
         if self._state == EXITING:
             # The exit market order filled at this bar's open (the bar exists,
-            # else we returned above); the machine may re-arm immediately.
+            # else we returned above); cooldown (if any) then governs re-arm.
             self._reset()
 
         if self._state == FLAT:
+            if self._cooldown_remaining > 0:
+                self._cooldown_remaining -= 1
+                return
             if close_t > sma_regime:
                 self._place_ladder(event.timestamp, peak, atr_t, events_queue)
             return
@@ -231,14 +256,16 @@ class TranchePullbackStrategy(Strategy):
                 self._emit_exit(event, events_queue)  # mean reversion to SMA_5
             return
 
-        # Hunting: nothing filled yet, so the ladder re-anchors. The regime
-        # filter applies to entries, and a resting limit IS a latent entry:
-        # losing the bull regime pulls the ladder; keeping it refreshes the
-        # anchor to the current peak/ATR.
+        # Hunting: nothing filled yet. Regime loss pulls the ladder (a resting
+        # limit is a latent entry). Otherwise re-anchor every `reanchor_every`
+        # bars — on daily data that's every bar; on intraday ports set it to
+        # bars-per-day so fills/stops resolve every bar while the ladder only
+        # refreshes once per calendar day.
+        self._bars_since_anchor += 1
         if close_t <= sma_regime:
             self._emit_exit(event, events_queue)  # flat: pure book purge
             self._reset()
-        else:
+        elif self._bars_since_anchor >= self.reanchor_every:
             self._place_ladder(event.timestamp, peak, atr_t, events_queue,
                                cancel_first=True)
 
@@ -248,6 +275,7 @@ class TranchePullbackStrategy(Strategy):
                         delay=self.delay, fill_at=fill_at, cancel_orders=True)
         )
         self._state = EXITING
+        self._cooldown_remaining = self.cooldown_bars
 
     def vectorized_signals(self, data: dict):
         # The latched state machine (path-dependent levels + tranche fills) has

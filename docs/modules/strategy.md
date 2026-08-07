@@ -76,16 +76,19 @@ strat = MovingAverageCrossStrategy(handler, "AAPL", fast=10, slow=40,
 
 `quantester/strategy/tranche_pullback.py`.
 
-### `TranchePullbackStrategy(data_handler, symbol, regime_window=200, peak_window=20, atr_window=14, atr_spacing=1.5, tranche_fractions=(0.25, 0.35, 0.40), exit_window=5, stop_atr_mult=5.0)`
+### `TranchePullbackStrategy(data_handler, symbol, regime_window=200, peak_window=20, atr_window=14, atr_spacing=1.5, tranche_fractions=(0.25, 0.35, 0.40), exit_window=5, stop_atr_mult=5.0, reanchor_every=1, cooldown_bars=0)`
 
 Volatility-spaced dip-buying ladder for a single symbol (built for BTC):
 
 - **Regime gate**: arms only while `close > SMA(regime_window)`.
 - **Re-anchoring ladder**: while no tranche is filled, three resting `LIMIT`
   buys at `T_k = peak − k·atr_spacing·ATR` (peak = rolling `peak_window`
-  close high, Wilder ATR) are canceled and re-anchored every bar; losing the
-  bull regime pulls the unfilled ladder. The **first fill freezes** the
-  levels until the position is completely closed.
+  close high, Wilder ATR) are canceled and re-anchored every `reanchor_every`
+  bars (default 1 = every bar on daily data); losing the bull regime pulls
+  the unfilled ladder. The **first fill freezes** the levels until the
+  position is completely closed. On intraday ports set `reanchor_every` to
+  bars-per-day and `cooldown_bars` to bars-per-day − 1 so the ladder still
+  refreshes on a daily cadence while fills/stops resolve every bar.
 - **Sizing**: tranche fractions ride on `SignalEvent.strength` against
   `limit_price=T_k`, so wire `PortfolioManager(sizer=PercentEquitySizer(1.0))`
   for the exact `q_k = equity·f_k/T_k` mapping.
@@ -112,7 +115,9 @@ engine = BacktestEngine(handler, TranchePullbackStrategy(handler, "BTC/USD"),
 
 Full evaluation on real CCXT data: `examples/run_tranche_pullback_ccxt.py`;
 parameter study with PBO/DSR gating and bootstrap MC:
-`examples/run_parameter_study_ccxt.py`.
+`examples/run_parameter_study_ccxt.py` (daily) and
+`examples/run_parameter_study_intraday_ccxt.py --tf 4h|1h` (calendar-scaled
+intraday ports).
 
 ## Meta-labeling
 

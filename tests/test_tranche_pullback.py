@@ -195,6 +195,26 @@ def test_regime_loss_purges_unfilled_ladder():
     assert len(portfolio_live.fills) > 0       # same ladder, still armed: fills
 
 
+def test_reanchor_every_skips_intervening_bars():
+    """reanchor_every=N refreshes the ladder only every N bars while hunting;
+    fills are still marked on intervening bars."""
+    bars = _ramp()
+    # 5 flat bullish bars after warmup: with reanchor_every=3 the anchor
+    # timestamps should be bars 199 (first arm), 202, 205 — not every bar.
+    bars += [(100.0 + 0.01 * i, 100.0 + 0.01 * i, 100.0 + 0.01 * i,
+              100.0 + 0.01 * i) for i in range(1, 7)]
+    handler = StreamingDataHandler({"BTC": _frame(bars)})
+    strategy = TranchePullbackStrategy(handler, "BTC", reanchor_every=3)
+    portfolio = PortfolioManager(handler, CAPITAL, sizer=PercentEquitySizer(1.0))
+    BacktestEngine(handler, strategy, portfolio,
+                   SimulatedExecutionHandler(ZERO_COSTS)).run_backtest()
+    assert portfolio.fills == []
+    assert strategy._state == "active"
+    # Last refresh on the final bar (199+6=205): 199, then +3 -> 202, +3 -> 205.
+    assert strategy._latched_at == _frame(bars).index[-1]
+    assert strategy._bars_since_anchor == 0
+
+
 def test_exit_purges_unfilled_tranche_limits():
     bars = _ramp()
     bars += [
