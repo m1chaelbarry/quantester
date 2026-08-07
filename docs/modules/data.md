@@ -40,10 +40,36 @@ handler = HistoricCSVDataHandler({
 - **CSV schema:** `datetime,open,high,low,close,volume` (datetime parsed as
   the index; all OHLCV columns coerced to float).
 - Duplicate timestamps are dropped (first wins) and data is sorted by time.
+- **Timestamps:** normalized to **timezone-aware UTC** at ingestion
+  (`normalize_ohlcv_frame` / `ensure_utc_index`). Providers must not leak a
+  mix of exchange-local naive, UTC-naive, and aware stamps into the engine.
+  yfinance daily bars keep exchange-local calendar wall times stamped as UTC
+  labels so cross-provider daily calendars stay aligned.
 - **Multi-symbol alignment:** the master calendar is the *union* of every
   symbol's timestamps (outer join). A symbol missing a bar at a timestamp is
   served as `None` — untradeable, never erased. Dropping incomplete bars
   would silently delete high-stress/illiquid periods and bias results.
+
+## Dataset-quality audit
+
+`quantester/data/audit.py` — reusable PASS / WARN / FAIL checks (timezone,
+monotonicity, duplicates, OHLC relationships, positive prices, non-negative
+volume, zero-volume warnings, missing-bar gaps, and documentation gates for
+corporate actions / survivorship / universe / calendar). Warnings are never
+silently promoted to passes.
+
+```python
+from quantester.data import audit_ohlcv_frame, audit_multi_symbol
+
+report = audit_ohlcv_frame(
+    df, "AAPL",
+    expected_freq="B",
+    adjustment_policy="split_dividend_adjusted",
+    corporate_actions_documented=True,
+    survivorship_bias_considered=True,
+)
+assert report.passed
+```
 
 ## Information-driven bars
 

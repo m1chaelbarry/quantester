@@ -62,21 +62,37 @@ def _block_draws(rng, pool: np.ndarray, n_sims: int, horizon: int,
 def empirical_resample(returns, horizon: int = 260, n_sims: int = 10_000,
                        seed: int | None = None,
                        block_length: int | None = None) -> ResampleResult:
-    """"Hat" resampling with replacement of net returns.
+    """"Hat" resampling with replacement of **simple** (net) returns.
 
-    block_length=None -> iid draws; block_length=L -> stationary block
-    bootstrap preserving serial correlation within blocks.
+    Equity paths compound geometrically:
+
+        wealth_t = prod(1 + r_i)
+
+    ``block_length=None`` -> iid draws; ``block_length=L`` -> fixed-length
+    block bootstrap preserving serial correlation within blocks.
+
+    Raises
+    ------
+    ValueError
+        On an empty pool or any finite simple return ``<= -1`` (wealth would
+        become non-positive / undefined under compounding).
     """
     pool = np.asarray(returns, dtype=float)
     pool = pool[np.isfinite(pool)]
     if len(pool) == 0:
         raise ValueError("empty return pool")
+    if np.any(pool <= -1.0):
+        raise ValueError(
+            "simple returns must be > -1 for geometric compounding; "
+            f"got min={float(pool.min()):.6g}"
+        )
     rng = np.random.default_rng(seed)
     if block_length is None:
         draws = _iid_draws(rng, pool, n_sims, horizon)
     else:
         draws = _block_draws(rng, pool, n_sims, horizon, block_length)
+    # Simple returns compound multiplicatively — NEVER 1 + cumsum(returns).
     paths = np.concatenate(
-        [np.ones((n_sims, 1)), 1.0 + np.cumsum(draws, axis=1)], axis=1
+        [np.ones((n_sims, 1)), np.cumprod(1.0 + draws, axis=1)], axis=1
     )
     return ResampleResult(paths=paths, terminal_returns=paths[:, -1] - 1.0)

@@ -20,7 +20,7 @@ def make_synthetic_ohlcv(symbol: str = "SYN", n_bars: int = 750, s0: float = 100
     """GBM daily bars. missing_every=k drops every k-th bar (after warmup) to
     simulate illiquid/stress gaps without erasing them from other symbols."""
     rng = np.random.default_rng(seed)
-    dates = pd.bdate_range(start=start, periods=n_bars)
+    dates = pd.bdate_range(start=start, periods=n_bars, tz="UTC")
     rets = rng.normal(mu / 252, sigma / np.sqrt(252), size=n_bars)
     close = s0 * np.exp(np.cumsum(rets))
     open_ = np.concatenate([[s0], close[:-1]]) * (1 + rng.normal(0, 0.001, n_bars))
@@ -59,7 +59,7 @@ def make_cointegrated_pair(n_bars: int = 750, beta: float = 1.4,
     master union calendar still contains those timestamps.
     """
     rng = np.random.default_rng(seed)
-    dates = pd.bdate_range(start=start, periods=n_bars)
+    dates = pd.bdate_range(start=start, periods=n_bars, tz="UTC")
 
     gdx_rets = rng.normal(gdx_mu / 252, gdx_sigma / np.sqrt(252), size=n_bars)
     log_gdx = np.log(gdx_s0) + np.cumsum(gdx_rets)

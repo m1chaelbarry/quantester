@@ -191,6 +191,15 @@ class PortfolioManager(Portfolio):
             return  # untradeable at this timestamp (availability mask)
         target = float(self.sizer(signal, self, ref_price))
         current = self.positions.get(signal.symbol, 0.0)
+        # Margin restriction: block any order that would increase |position|
+        # (new entry risk). Risk-reducing shrinks / flips toward flat remain
+        # allowed so recovery and intentional exits can proceed.
+        if (
+            self.margin_monitor is not None
+            and self.margin_monitor.restricted
+            and abs(target) > abs(current) + 1e-12
+        ):
+            return
         delta = target - current
         if abs(delta) < 1e-12:
             return
@@ -312,9 +321,10 @@ class PortfolioManager(Portfolio):
         if (
             events_queue is not None
             and self.margin_monitor is not None
-            and self.margin_monitor.is_breach(equity, self.gross_exposure)
+            and self.margin_monitor.update(equity, self.gross_exposure)
         ):
-            self._liquidate(market_event, events_queue)
+            # Newly tripped breach: cancel resting risk, then shrink.
+            self._margin_liquidate(market_event, events_queue)
 
         if (
             events_queue is not None
@@ -354,6 +364,26 @@ class PortfolioManager(Portfolio):
                 )
             )
 
+    def _margin_liquidate(self, market_event, events_queue):
+        """Margin breach: cancel resting entry risk, then shrink positions.
+
+        Restriction remains active (``margin_monitor.restricted``) until
+        leverage recovers — strategies cannot increase exposure merely because
+        liquidation orders have been queued.
+        """
+        for symbol in self.data_handler.symbols:
+            events_queue.put(
+                OrderEvent(
+                    timestamp=market_event.timestamp,
+                    symbol=symbol,
+                    order_type=CANCEL_ORDER,
+                    quantity=0.0,
+                    direction=BUY,
+                    earliest_fill_time=market_event.timestamp,
+                )
+            )
+        self._liquidate(market_event, events_queue)
+
     def _liquidate(self, market_event, events_queue):
         targets = self.margin_monitor.liquidation_targets(self.positions)
         fill_time = self.data_handler.timestamp_at_offset(market_event.timestamp, 1)
@@ -373,3 +403,24 @@ class PortfolioManager(Portfolio):
                     earliest_fill_time=fill_time,
                 )
             )
+
+    def accounting_invariant(self, atol: float = 1e-6) -> dict:
+        """Core ledger check: equity == cash + marked-to-market positions.
+
+        Subject to documented financing / dividend / borrow mechanics (idle-cash
+        yield is already in cash; borrow is a documented simplification).
+        """
+        mtm = sum(
+            qty * self.last_prices.get(symbol, 0.0)
+            for symbol, qty in self.positions.items()
+        )
+        expected = self.cash + mtm
+        actual = self.equity
+        return {
+            "cash": self.cash,
+            "mtm": mtm,
+            "equity": actual,
+            "expected_equity": expected,
+            "ok": abs(actual - expected) <= atol,
+            "abs_diff": abs(actual - expected),
+        }

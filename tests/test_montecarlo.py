@@ -1,5 +1,7 @@
 """Seeded Monte Carlo correctness tests + fast-track/engine parity."""
 
+import warnings
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -118,6 +120,25 @@ def test_ou_parameter_recovery():
 def test_diagnostics_white_noise_vs_correlated(toy_returns):
     report = autocorrelation_gate(toy_returns, alpha=0.05)
     assert report.recommended_method == "iid_resampling"
+
+    # Strong AR(1) residuals must trip the gate and route to block bootstrap.
+    rng = np.random.default_rng(9)
+    ar = np.empty(400)
+    ar[0] = 0.0
+    for t in range(1, 400):
+        ar[t] = 0.8 * ar[t - 1] + rng.normal(0, 0.01)
+    gated = autocorrelation_gate(ar, alpha=0.05)
+    assert gated.serial_correlation
+    assert gated.recommended_method == "block_bootstrap_or_ou_paths"
+
+    from quantester.montecarlo.adaptive import adaptive_empirical_resample
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        adapted = adaptive_empirical_resample(ar, horizon=40, n_sims=30, seed=2)
+    assert adapted.method_used == "block_bootstrap"
+    assert adapted.block_length is not None and adapted.block_length >= 2
+    assert any(issubclass(w.category, UserWarning) for w in caught)
 
     correlated = np.convolve(toy_returns, np.ones(5) / 5, mode="same")
     report2 = autocorrelation_gate(correlated, alpha=0.05)

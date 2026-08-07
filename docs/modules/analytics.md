@@ -60,17 +60,35 @@ mathematically requires the *actual* number of trials N and the cross-trial
 variance of Sharpes — values you cannot reconstruct honestly after the fact.
 
 ```python
-from quantester.analytics.trials_registry import TrialsRegistry
+from quantester.analytics.trials_registry import (
+    TrialsRegistry, auto_register_from_equity,
+)
 
 registry = TrialsRegistry("trials.db")          # or ":memory:"
-registry.log_trial(params={"fast": 10, "slow": 40}, sharpe=1.23,
-                   mean=..., std=..., skew=..., kurt=..., n_obs=...,
-                   run_id="ma_sweep_2026_08")
-registry.n_trials()          # N
+registry.register_experiment(
+    strategy_id="ma_cross",
+    params={"fast": 10, "slow": 40},
+    sharpe=1.23,
+    data_source="yfinance",
+    universe=["AAPL"],
+    cost_model={"spread_bps": 5},
+    random_seed=7,
+    code_version="0.1.0",
+)
+# Or derive moments from an equity curve automatically:
+auto_register_from_equity(registry, equity, strategy_id="ma_cross",
+                          params={"fast": 10, "slow": 40})
+registry.n_trials()          # N for DSR — the true registered trial count
+registry.experiment_ids()    # unique experiment hashes
 registry.sharpe_variance()   # sigma^2 across trials
 registry.best_trial()        # dict with params, sharpe, moments
 registry.close()
 ```
+
+Return helpers in `quantester/analytics/returns.py` keep **simple returns**,
+**log returns**, **P&L**, and **equity/wealth** mathematically distinct
+(`wealth_from_simple_returns`, `wealth_from_log_returns`, `simple_to_log`,
+`log_to_simple`).
 
 **Parallel-safe write path:** SQLite rejects concurrent writers. During
 parallel optimization, workers append records with

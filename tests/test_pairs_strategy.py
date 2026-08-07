@@ -399,10 +399,13 @@ def test_truncation_detects_look_ahead_leakage(tmp_path):
                     index_col="datetime")
     match = re.search(r"diverge at (\d{4}-\d{2}-\d{2})", message)
     assert match is not None, "first-divergence timestamp not pinpointed"
-    leaked_ts = pd.Timestamp(match.group(1))
+    leaked_ts = pd.Timestamp(match.group(1), tz="UTC")
     # Divergence must surface in the tail of the overlap, where Run B no
     # longer has the future bars Run A peeked into.
-    assert leaked_ts >= b.index[-10]
+    b_tail = b.index[-10]
+    if b_tail.tzinfo is None:
+        b_tail = b_tail.tz_localize("UTC")
+    assert leaked_ts >= b_tail
 
 
 def test_truncate_on_master_calendar_validation(pair_data):

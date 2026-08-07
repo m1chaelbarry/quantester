@@ -11,12 +11,18 @@ Normalization notes (yfinance >= 0.2 / 1.x API, per official docs):
 - Ticker.history() returns capitalized columns (Open/High/Low/Close/Volume,
   plus Dividends/Stock Splits) indexed by a tz-aware 'Date'/'Datetime' index
   in the exchange's local timezone (e.g. America/New_York for US listings);
-  we drop the tz and keep the exchange-local wall time, so daily bars stay on
-  their displayed calendar dates and avoid DST-ragged UTC midnights.
+  we convert to timezone-aware UTC so the core engine has a single timestamp
+  standard (DST transitions become explicit UTC instants).
 - auto_adjust is passed through explicitly (default True) because yfinance
   changed the library default across releases; adjusted OHLC removes
   artificial price gaps from splits/dividends, which is what a total-return
   style backtest should consume.
+
+Corporate-action / adjustment semantics: with ``auto_adjust=True`` (default),
+OHLC is split/dividend adjusted; raw (unadjusted) prices require
+``auto_adjust=False``. Survivorship and historical universe membership are
+NOT handled by this provider — Yahoo's current listing set is subject to
+survivorship bias and must be documented by the researcher.
 
 This module implements data retrieval only -- no quantitative formulas, so
 there is nothing to verify against the quant-literature notebook; the
@@ -53,7 +59,13 @@ def _normalize_history(raw: pd.DataFrame, symbol: str) -> pd.DataFrame:
     df = raw.rename(columns=_OHLCV_MAP)
     idx = pd.DatetimeIndex(df.index)
     if idx.tz is not None:
-        idx = idx.tz_localize(None)  # exchange-local wall time, not UTC shift
+        # Keep exchange-local wall times (calendar dates for daily bars) and
+        # stamp them as timezone-aware UTC labels. Converting NY midnights to
+        # absolute UTC would shift daily bars to 05:00 and break cross-provider
+        # calendar alignment; intraday users who need absolute UTC should
+        # prefer ccxt or pre-convert before constructing the handler.
+        idx = idx.tz_localize(None)
+    idx = idx.tz_localize("UTC")
     df.index = pd.DatetimeIndex(idx, name="datetime")
     return df
 

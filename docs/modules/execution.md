@@ -89,6 +89,34 @@ holds. Matches Carver's round-trip form `2 × (spread/2 + fee)` per leg
 (notebook cross-reference: "it is better to be conservative and assume costs
 are higher than you'd hope").
 
+### `RetailCostModel` (OHLCV-only retail friction)
+
+Configurable retail execution without Level-2 data:
+
+```python
+from quantester.execution import RetailCostModel, retail_cost_scenario
+
+model = RetailCostModel(
+    spread_bps=5.0,
+    volatility_slippage_factor=0.1,
+    impact_factor=0.1,
+    impact_exponent=0.5,
+    max_participation_rate=0.05,
+)
+# Named stress presets: BASE / CONSERVATIVE / STRESS
+stress = retail_cost_scenario("STRESS")
+```
+
+Adverse adjustment = half-spread + vol-scaled range slippage + participation
+impact (`impact_factor × vol_bps × participation ** exponent`). Tiny orders
+against deep bars incur negligible impact; oversized orders are clipped by
+`max_participation_rate` (default research policy: **partial fills**, with
+residuals pending across subsequent bars). `liquidity_policy` on
+`SimulatedExecutionHandler` may also be `"reject"` or `"none"` (legacy).
+
+Execution diagnostics (`handler.diagnostics.summary()`) report median/P95/max
+participation and impact, plus partial-fill and liquidity-rejection rates.
+
 ### Cost accounting in one line
 
 `fill_price` = reference ± adverse adjustment (all-in) → cash pays

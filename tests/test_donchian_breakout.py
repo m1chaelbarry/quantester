@@ -31,7 +31,7 @@ STOP_MULT = 2.0
 
 
 def _frame(bars, start="2024-01-01", freq="h"):
-    idx = pd.date_range(start=start, periods=len(bars), freq=freq)
+    idx = pd.date_range(start=start, periods=len(bars), freq=freq, tz="UTC")
     return pd.DataFrame(
         {
             "open": [b[0] for b in bars],

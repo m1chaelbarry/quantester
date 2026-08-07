@@ -26,7 +26,7 @@ CAPITAL = 100_000.0
 
 
 def _frame(bars, start="2024-01-01"):
-    idx = pd.bdate_range(start=start, periods=len(bars))
+    idx = pd.bdate_range(start=start, periods=len(bars), tz="UTC")
     return pd.DataFrame(
         {
             "open": [b[0] for b in bars],

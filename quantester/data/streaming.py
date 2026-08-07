@@ -15,8 +15,10 @@ the look-ahead firewall implemented here:
   visible.
 
 Normalized frame contract (enforced at construction): lowercase
-open/high/low/close/volume columns, unique sorted tz-naive datetime index
-(naive == UTC for exchange-provided timestamps).
+open/high/low/close/volume columns, unique sorted **timezone-aware UTC**
+datetime index. Provider adapters localize/convert at the ingestion boundary
+so the core engine never mixes exchange-local naive, UTC-naive, and aware
+timestamps.
 """
 
 from __future__ import annotations
@@ -30,7 +32,14 @@ REQUIRED_COLUMNS = ("open", "high", "low", "close", "volume")
 
 def normalize_ohlcv_frame(df: pd.DataFrame, symbol: str = "") -> pd.DataFrame:
     """Coerce a raw frame to the normalized contract; raises ValueError listing
-    any missing columns so provider wiring fails fast with a clear message."""
+    any missing columns so provider wiring fails fast with a clear message.
+
+    Timestamps are normalized to timezone-aware UTC. Tz-naive inputs are
+    localized as UTC (callers that hold exchange-local wall times must convert
+    explicitly in the provider adapter before reaching this helper).
+    """
+    from .audit import ensure_utc_index
+
     missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
     if missing:
         raise ValueError(
@@ -38,10 +47,7 @@ def normalize_ohlcv_frame(df: pd.DataFrame, symbol: str = "") -> pd.DataFrame:
             f"OHLCV columns {missing}; got {list(df.columns)}."
         )
     out = df[~df.index.duplicated(keep="first")].sort_index()
-    # Canonical ns resolution: provider frames arrive as datetime64[s/ms/us]
-    # (pandas 3 infers resolution from source), which must not leak into
-    # cross-provider index comparisons.
-    out.index = pd.DatetimeIndex(out.index).as_unit("ns")
+    out.index = ensure_utc_index(out.index)
     return out[list(REQUIRED_COLUMNS)].astype(float)
 
 

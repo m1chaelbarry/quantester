@@ -1,18 +1,20 @@
-# Validation: Truncation, CPCV, PBO
+# Validation: Truncation, CPCV, PBO, Gates
 
 Package: `quantester/validation`
 
 Three orthogonal defenses, ordered from "always run" to "run after any
-optimization". The full workflow with acceptance gates is in the
+optimization", plus a research-governance gate layer. The full workflow with
+acceptance gates is in the
 [Validation Workflow tutorial](../tutorials/validation-workflow.md).
 
-## Truncation test — the leak detector
+## Truncation diagnostic — temporal leakage check
 
 `quantester/validation/truncation.py` (Ernest Chan's check).
 
 Run the full backtest (positions file A), truncate the last N bars, re-run
-the *identical* program (file B), and compare the overlapping positions: they
-must be bit-identical. Any mismatch proves the pipeline consumed future data.
+the *identical* program (file B), and compare overlapping positions with an
+**absolute-difference** tolerance. This is a strong temporal-leakage
+diagnostic — not a formal proof that all look-ahead is impossible.
 
 ```python
 from quantester.validation.truncation import run_truncation_test
@@ -25,12 +27,39 @@ def run(truncate_last=None):
     return portfolio.positions_history
 
 result = run_truncation_test(run, n_truncated=20)
-print(result)        # Truncation test [PASS]: compared ... 0 mismatch(es).
+print(result)        # Truncation diagnostic [PASS]: compared ... 0 mismatch(es).
 result.passed        # bool — the gate
 ```
 
 `TruncationResult` carries `passed`, `rows_compared`, and up to 20 example
-`mismatches` (timestamp, symbol, full vs truncated value) to debug a leak.
+`mismatches` (timestamp, symbol, full vs truncated value, abs_diff).
+
+## Research gates
+
+`quantester/validation/gates.py` aggregates PASS / WARN / FAIL /
+NOT_APPLICABLE outcomes. A run may only claim `VALIDATED` when every
+mandatory gate is PASS or NOT_APPLICABLE — mandatory FAIL blocks validation
+and warnings remain visible.
+
+```python
+from quantester.validation import evaluate_gates, build_validation_report
+
+gates = evaluate_gates(
+    data_audit_status="PASS",
+    truncation_passed=True,
+    pbo_passed=True,
+    pbo_value=0.04,
+    dsr_value=0.97,
+    untouched_oos_passed=True,
+    monte_carlo_passed=True,
+    accounting_invariant_passed=True,
+    execution_assumptions_documented=True,
+    execution_stress_passed=True,
+    cpcv_passed=True,
+)
+report = build_validation_report(gates, trial_count=48, code_version="0.1.0")
+assert report.validated
+```
 
 ## Purged cross-validation (for ML strategies)
 
