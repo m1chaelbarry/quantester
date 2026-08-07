@@ -42,6 +42,21 @@ python examples/run_ma_cross.py      # backtest + tearsheet + truncation check
 python examples/run_monte_carlo.py   # Monte Carlo validation suite
 ```
 
+## Market data providers
+
+All feeds share one streaming implementation, so the temporal firewall and
+availability-mask semantics are identical regardless of source:
+
+- `HistoricCSVDataHandler` — local `datetime,open,high,low,close,volume` CSVs.
+- `YFinanceDataHandler` — free Yahoo Finance OHLCV
+  (`pip install "quantester[yfinance]"`).
+- `CCXTDataHandler` — free OHLCV from 100+ crypto exchanges via ccxt
+  (`pip install "quantester[ccxt]"`, or `quantester[data]` for both).
+
+```bash
+python examples/run_market_data.py   # live-data backtest via yfinance + ccxt
+```
+
 ## Source verification status
 
 Core formulas (ETF trick, CPCV purging, CSCV PBO, Masters permutation p-value
