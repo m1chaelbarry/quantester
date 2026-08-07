@@ -285,6 +285,13 @@ paths = write_csvs({"AAA": df}, "examples/data")    # schema-correct CSVs
 `missing_every=k` simulates illiquid gaps — exactly what the availability
 mask is built for.
 
+For pairs-trading work, `make_cointegrated_pair(n_bars=750, beta=1.4,
+spread_phi=0.95, spread_sigma=0.02, ..., seed=7, gdx_missing_every=None)`
+returns seeded cointegrated GLD/GDX-like OHLCV frames: ln GDX follows GBM and
+ln GLD = α + β·ln GDX + e, where e is a stationary AR(1) (discrete
+Ornstein-Uhlenbeck) spread — cointegrated by construction with a **known**
+hedge ratio, ideal for testing `PairsTradingStrategy`.
+
 **B. Local CSVs** — header `datetime,open,high,low,close,volume`, one per
 symbol, or pre-loaded DataFrames indexed by datetime:
 
@@ -734,7 +741,9 @@ dsr = dsr_from_registry(registry, sr_hat=best["sharpe"], n_obs=best["n_obs"],
 
 Parallel-safe pattern: workers append via
 `TrialsRegistry.write_jsonl_record(path, record)`; a single thread bulk-loads
-with `registry.import_jsonl(path)`. Standalone functions:
+with `registry.import_jsonl(path)`. Other registry accessors:
+`n_trials()`, `sharpe_values()`, `sharpe_variance()`, `best_trial()`,
+`close()`. Standalone functions:
 `expected_max_sharpe(n_trials, trial_variance)`,
 `probabilistic_sharpe_ratio(sr_hat, sr_benchmark, n_obs, skew, kurtosis)`,
 `deflated_sharpe_ratio(...)`.
