@@ -21,7 +21,12 @@ from quantester.montecarlo.permutation import (
     permute_log_changes,
     trend_bias_skill,
 )
-from quantester.montecarlo.synthetic import estimate_ou_params, generate_ou_paths
+from quantester.montecarlo.synthetic import (
+    _stationary_bootstrap_indices,
+    bootstrap_ohlcv,
+    estimate_ou_params,
+    generate_ou_paths,
+)
 from quantester.montecarlo.trade_resampling import (
     ehlers_randomized_equity,
     empirical_resample,
@@ -143,6 +148,31 @@ def test_fast_track_engine_parity(ohlc):
     assert np.allclose(
         engine_equity.to_numpy(), fast.equity.to_numpy(), rtol=1e-9, atol=1e-6
     )
+
+
+def test_bootstrap_ohlcv_determinism_and_invariants(ohlc):
+    a = bootstrap_ohlcv(ohlc, mean_block=20, seed=7)
+    b = bootstrap_ohlcv(ohlc, mean_block=20, seed=7)
+    c = bootstrap_ohlcv(ohlc, mean_block=20, seed=8)
+    pd.testing.assert_frame_equal(a, b)          # seeded determinism
+    assert not a["close"].equals(c["close"])
+    assert len(a) == len(ohlc) and a.index.equals(ohlc.index)
+    assert list(a.columns) == ["open", "high", "low", "close", "volume"]
+    # OHLC consistency by construction.
+    assert (a["high"] >= a[["open", "close"]].max(axis=1) - 1e-12).all()
+    assert (a["low"] <= a[["open", "close"]].min(axis=1) + 1e-12).all()
+    assert (a[["open", "high", "low", "close"]] > 0).all().all()
+
+
+def test_stationary_bootstrap_block_contiguity():
+    """Long mean blocks preserve consecutive bars; mean_block=1 = iid shuffle."""
+    n = 2000
+    long_blocks = _stationary_bootstrap_indices(n, 200.0, np.random.default_rng(3))
+    contiguity = (long_blocks[1:] == (long_blocks[:-1] + 1) % n).mean()
+    assert contiguity > 0.9
+    iid = _stationary_bootstrap_indices(n, 1.0, np.random.default_rng(3))
+    contiguity_iid = (iid[1:] == (iid[:-1] + 1) % n).mean()
+    assert contiguity_iid < 0.1
 
 
 def test_fast_track_engine_parity_price_aware_costs(ohlc):
