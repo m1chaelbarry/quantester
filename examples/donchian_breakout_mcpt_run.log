@@ -1,0 +1,31 @@
+========================================================================
+Donchian breakout — hourly BTC backtest + Protocol II MCPT
+========================================================================
+Cache: 22787 bars  2024-01-01 00:00:00 → 2026-08-07 10:00:00
+
+-- full-history backtest --
+  elapsed 168s
+  Donchian net                      ret=-68.64%  cagr=-35.97%  sharpe=-1.173  maxDD=-75.12%  trades=365
+  Donchian gross                    ret=+8.48%  cagr=+3.18%  sharpe=+0.083  maxDD=-35.67%  trades=365
+  Buy & hold                        ret=+52.67%  cagr=+17.66%  sharpe=+0.339  maxDD=-53.85%  trades=0
+
+-- MCPT window: last 2500 bars  2026-04-25 07:00:00 → 2026-08-07 10:00:00 --
+  elapsed 16s
+  Donchian net (window)             ret=-24.36%  cagr=-62.40%  sharpe=-3.219  maxDD=-26.74%  trades=38
+  Donchian gross (window)           ret=-11.72%  cagr=-35.39%  sharpe=-1.456  maxDD=-19.77%  trades=38
+  Buy & hold (window)               ret=-16.44%  cagr=-46.71%  sharpe=-1.606  maxDD=-29.48%  trades=0
+
+-- autocorrelation gate --
+  recommended=block_bootstrap_or_ou_paths  runs_p=0.0717  LB_p=0.0024  serial_correlation=True
+
+-- Protocol II MCPT (200 reps, 4 workers) --
+  (event-driven re-runs; no vectorized twin for this strategy)
+  elapsed 424s
+  original Sharpe=-3.219  return=-24.36%
+  perm Sharpe: median=-1.605  p5=-4.702  p95=+1.744
+  MCPT p-value (200 reps): 0.8000  (not significant)
+  Masters partition: trend=-0.164  bias=+0.055  skill=-0.135
+  P(perm Sharpe >= original)=0.799  P(perm Sharpe > 0)=0.216
+
+Figure: examples/output/donchian_breakout_mcpt.png
+Summary: examples/output/donchian_breakout_mcpt_summary.txt

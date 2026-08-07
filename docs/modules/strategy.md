@@ -157,8 +157,10 @@ engine = BacktestEngine(handler, DonchianBreakoutStrategy(handler, "BTC/USD"),
                         SimulatedExecutionHandler(ConservativeFrictionCostModel()))
 ```
 
-Examples: `examples/run_donchian_breakout.py` (synthetic hourly) and
-`examples/run_donchian_breakout_ccxt.py` (real Bitstamp 1h).
+Examples: `examples/run_donchian_breakout.py` (synthetic hourly),
+`examples/run_donchian_breakout_ccxt.py` (real Bitstamp 1h), and
+`examples/run_donchian_breakout_mcpt.py` (Protocol II MCPT on event-driven
+re-runs — required because there is no vectorized twin).
 
 ## Meta-labeling
 

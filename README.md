@@ -46,6 +46,7 @@ python examples/run_tranche_pullback.py        # BTC tranche pullback ladder (sy
 python examples/run_tranche_pullback_ccxt.py   # ... on real CCXT BTC data + audits
 python examples/run_donchian_breakout.py       # hourly Donchian+ADX breakout (synthetic)
 python examples/run_donchian_breakout_ccxt.py  # ... on real CCXT BTC 1h data
+python examples/run_donchian_breakout_mcpt.py  # real 1h backtest + Protocol II MCPT
 python examples/run_parameter_study_ccxt.py    # parameter grid + PBO/DSR + bootstrap MC
 python examples/run_parameter_study_intraday_ccxt.py --tf 4h  # same on 4h/1h
 ```
