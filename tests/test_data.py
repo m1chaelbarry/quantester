@@ -54,7 +54,7 @@ def test_timestamp_at_offset(ohlc):
 
 def _ticks(n=2_000, seed=3):
     rng = np.random.default_rng(seed)
-    idx = pd.date_range("2024-01-01", periods=n, freq="1min")
+    idx = pd.date_range("2024-01-01", periods=n, freq="1min", tz="UTC")
     prices = 100 * np.exp(np.cumsum(rng.normal(0, 0.001, n)))
     volumes = rng.lognormal(8, 0.5, n)
     return pd.DataFrame({"price": prices, "volume": volumes}, index=idx)
@@ -89,7 +89,7 @@ def test_tick_imbalance_bars_structure():
 
 
 def _trick_inputs(rebalance=True):
-    idx = pd.bdate_range("2024-01-01", periods=6)
+    idx = pd.bdate_range("2024-01-01", periods=6, tz="UTC")
     close = pd.DataFrame({"F1": [100, 101, 102, 103, 104, 105],
                           "F2": [50, 50.5, 51, 51.5, 52, 52.5]}, index=idx, dtype=float)
     open_ = close.shift(1).bfill()

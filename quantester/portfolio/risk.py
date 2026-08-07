@@ -109,13 +109,31 @@ class DailyDrawdownBreaker:
 
 
 class MarginMonitor:
-    """Tracks leverage = gross exposure / equity; breaches trigger liquidation."""
+    """Tracks leverage = gross exposure / equity; breaches trigger liquidation.
+
+    Preferred state machine after a margin breach:
+
+        MARGIN_BREACH
+            → cancel / block new entry risk
+            → liquidate (shrink positions)
+            → remain restricted until leverage recovers below max_leverage
+
+    While ``restricted`` is True, the portfolio must not allow strategies to
+    *increase* gross exposure. Liquidation and risk-reducing exits remain
+    permitted. Restriction clears only when leverage falls back to
+    ``max_leverage`` (explicit safe recovery), not merely because a
+    liquidation order has been queued.
+    """
 
     def __init__(self, max_leverage: float = 2.0, liquidation_fraction: float = 0.5):
         if max_leverage <= 0:
             raise ValueError("max_leverage must be positive")
+        if not 0.0 < liquidation_fraction <= 1.0:
+            raise ValueError("liquidation_fraction must lie in (0, 1]")
         self.max_leverage = max_leverage
         self.liquidation_fraction = liquidation_fraction
+        self.restricted = False
+        self.breach_count = 0
 
     def leverage(self, equity: float, gross_exposure: float) -> float:
         if equity <= 0:
@@ -124,6 +142,18 @@ class MarginMonitor:
 
     def is_breach(self, equity: float, gross_exposure: float) -> bool:
         return self.leverage(equity, gross_exposure) > self.max_leverage
+
+    def update(self, equity: float, gross_exposure: float) -> bool:
+        """Update restriction state; return True only on a newly tripped breach."""
+        if self.is_breach(equity, gross_exposure):
+            newly = not self.restricted
+            self.restricted = True
+            if newly:
+                self.breach_count += 1
+            return newly
+        # Explicit safe recovery: leverage back at or below the limit.
+        self.restricted = False
+        return False
 
     def liquidation_targets(self, positions: dict) -> dict:
         """Target quantities after de-risking: shrink every position."""

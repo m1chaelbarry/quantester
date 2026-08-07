@@ -23,7 +23,7 @@ from quantester.strategy.examples import MovingAverageCrossStrategy
 from quantester.utils.synthetic import make_synthetic_ohlcv
 
 DAY_MS = 86_400_000
-T0 = pd.Timestamp("2024-01-01")  # naive == UTC in normalized frames
+T0 = pd.Timestamp("2024-01-01", tz="UTC")
 
 
 # --------------------------------------------------------------------------
@@ -34,7 +34,11 @@ def _yf_raw(df: pd.DataFrame) -> pd.DataFrame:
     """What yfinance returns: capitalized cols, exchange-local tz-aware index
     (midnight America/New_York for US daily bars), extra Dividends columns."""
     raw = df.rename(columns={c: c.capitalize() for c in df.columns})
-    raw.index = raw.index.tz_localize("America/New_York")
+    idx = pd.DatetimeIndex(raw.index)
+    # Synthetic fixtures are UTC; map calendar dates to exchange-local midnights.
+    if idx.tz is not None:
+        idx = idx.tz_convert("UTC").tz_localize(None)
+    raw.index = idx.tz_localize("America/New_York")
     raw = raw.rename_axis("Date")
     raw["Dividends"] = 0.0
     raw["Stock Splits"] = 0.0
@@ -49,11 +53,18 @@ def _install_fake_yf(monkeypatch, frames: dict):
         def history(self, start=None, end=None, interval="1d", auto_adjust=True,
                     **kwargs):
             raw = _yf_raw(frames[self.symbol])
+
+            def _as_ny(ts):
+                ts = pd.Timestamp(ts)
+                if ts.tzinfo is None:
+                    return ts.tz_localize("America/New_York")
+                return ts.tz_convert("America/New_York")
+
             if start is not None:
-                start = pd.Timestamp(start).tz_localize("America/New_York")
+                start = _as_ny(start)
                 raw = raw.loc[raw.index >= start]
             if end is not None:
-                end = pd.Timestamp(end).tz_localize("America/New_York")
+                end = _as_ny(end)
                 raw = raw.loc[raw.index < end]
             return raw
 
@@ -120,8 +131,10 @@ def test_yfinance_normalizes_columns_tz_and_dtypes(monkeypatch):
     handler = _yf_handler(monkeypatch, frames)
     df = handler._data["AAA"]
     assert list(df.columns) == ["open", "high", "low", "close", "volume"]
-    assert df.index.tz is None and df.index.name == "datetime"
+    assert df.index.tz is not None and str(df.index.tz) == "UTC"
+    assert df.index.name == "datetime"
     assert df.index.is_monotonic_increasing and not df.index.duplicated().any()
+    # Wall-time calendar dates are preserved as UTC-labeled midnights.
     from quantester.data.streaming import normalize_ohlcv_frame
 
     pd.testing.assert_frame_equal(df, normalize_ohlcv_frame(frames["AAA"]),
@@ -207,6 +220,7 @@ def test_ccxt_until_ms_filters_tail():
     until_ms = int(df.index[4].value // 1_000_000)
     out = ch._fetch_symbol_ohlcv(exchange, "AAA", until_ms=until_ms)
     assert out.index[-1] == df.index[4]
+    assert out.index.tz is not None
 
 
 def test_ccxt_empty_and_only_incomplete_raise():
@@ -245,7 +259,8 @@ def test_ccxt_import_error_is_actionable(monkeypatch):
 
 
 def test_to_ms_interprets_naive_as_utc():
-    assert ch._to_ms("2024-01-01") == int(T0.value // 1_000_000)
+    naive = pd.Timestamp("2024-01-01")
+    assert ch._to_ms(naive) == int(pd.Timestamp("2024-01-01", tz="UTC").value // 1_000_000)
     aware = pd.Timestamp("2024-01-01", tz="America/New_York")  # 05:00 UTC
     assert ch._to_ms(aware) == int(T0.value // 1_000_000) + 5 * 3_600_000
     assert ch._to_ms(None) is None

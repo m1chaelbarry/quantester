@@ -110,3 +110,171 @@ class ConservativeFrictionCostModel(CostModel):
                 "reference price to charge notional-based fees."
             )
         return self.friction_multiplier * self.fee_rate * quantity * price
+
+
+@dataclass
+class RetailCostModel(CostModel):
+    """OHLCV-only retail execution cost model (no Level-2 / order book).
+
+    Decomposition of the per-share adverse adjustment:
+
+        fill = reference ± (spread + volatility_slippage + participation_impact)
+
+    where:
+
+    - ``spread_bps``: full bid-ask assumption in basis points (instrument-
+      specific; do not hard-code one universal spread).
+    - ``volatility_slippage_factor × range_bps``: Kaufman-style uncertainty
+      from the bar's high-low range.
+    - ``impact_factor × volatility_bps × participation ** impact_exponent``:
+      nonlinear participation-aware market impact. Tiny orders against deep
+      volume incur negligible impact; large orders against thin bars do not.
+
+    ``max_participation_rate`` is a liquidity constraint (not a cost): the
+    execution simulator clips fill quantity to
+    ``bar_volume × max_participation_rate`` and may partially fill / reject /
+    split across subsequent bars.
+
+    Verification status: not covered by the notebook — implemented from the
+    Quantester retail-execution hardening specification (OHLCV friction with
+    configurable spread / vol slippage / square-root-style impact).
+
+    Deterministic in (order, bar) so the event engine and MC fast-track stay
+    in parity when the same model instance is shared.
+    """
+
+    spread_bps: float = 5.0
+    volatility_slippage_factor: float = 0.1
+    impact_factor: float = 0.1
+    impact_exponent: float = 0.5
+    max_participation_rate: float = 0.05
+    # Keep legacy CostModel knobs inert so accidental inheritance of defaults
+    # cannot double-count spread/slippage/impact under the retail formulas.
+    fixed_commission: float = 0.0
+    per_share_commission: float = 0.0
+    spread_pct: float = 0.0
+    slippage_vol_coef: float = 0.0
+    impact_coef: float = 0.0
+
+    def __post_init__(self) -> None:
+        if self.spread_bps < 0:
+            raise ValueError("spread_bps must be non-negative")
+        if self.volatility_slippage_factor < 0:
+            raise ValueError("volatility_slippage_factor must be non-negative")
+        if self.impact_factor < 0:
+            raise ValueError("impact_factor must be non-negative")
+        if not 0.0 < self.impact_exponent <= 2.0:
+            raise ValueError("impact_exponent must lie in (0, 2]")
+        if not 0.0 < self.max_participation_rate <= 1.0:
+            raise ValueError("max_participation_rate must lie in (0, 1]")
+
+    @staticmethod
+    def _bps_to_fraction(bps: float) -> float:
+        return float(bps) / 10_000.0
+
+    def half_spread(self, price: float) -> float:
+        return price * self._bps_to_fraction(self.spread_bps) / 2.0
+
+    def volatility_bps(self, price: float, bar_high: float, bar_low: float) -> float:
+        if price <= 0:
+            return 0.0
+        return max(bar_high - bar_low, 0.0) / price * 10_000.0
+
+    def volatility_slippage(self, price: float, bar_high: float, bar_low: float) -> float:
+        vol_bps = self.volatility_bps(price, bar_high, bar_low)
+        return price * self._bps_to_fraction(
+            self.volatility_slippage_factor * vol_bps
+        )
+
+    def participation(self, quantity: float, bar_volume: float) -> float:
+        if bar_volume <= 0 or quantity <= 0:
+            return 0.0
+        return float(quantity) / float(bar_volume)
+
+    def participation_impact(
+        self, price: float, quantity: float, bar_volume: float,
+        bar_high: float, bar_low: float,
+    ) -> float:
+        if price <= 0 or quantity <= 0 or bar_volume <= 0:
+            return 0.0
+        vol_bps = self.volatility_bps(price, bar_high, bar_low)
+        part = self.participation(quantity, bar_volume)
+        impact_bps = (
+            self.impact_factor * vol_bps * (part ** self.impact_exponent)
+        )
+        return price * self._bps_to_fraction(impact_bps)
+
+    def max_fill_quantity(self, bar_volume: float) -> float:
+        return max(float(bar_volume), 0.0) * self.max_participation_rate
+
+    def cost_components(self, price: float, quantity: float, bar) -> dict:
+        """Breakdown of the per-share adverse adjustment (for diagnostics)."""
+        high = float(bar["high"])
+        low = float(bar["low"])
+        volume = float(bar["volume"])
+        spread = self.half_spread(price)
+        slip = self.volatility_slippage(price, high, low)
+        impact = self.participation_impact(price, quantity, volume, high, low)
+        return {
+            "half_spread": spread,
+            "volatility_slippage": slip,
+            "participation_impact": impact,
+            "participation": self.participation(quantity, volume),
+            "volatility_bps": self.volatility_bps(price, high, low),
+            "total_adjustment": spread + slip + impact,
+        }
+
+    def adverse_adjustment(self, price: float, quantity: float, bar) -> float:
+        return self.cost_components(price, quantity, bar)["total_adjustment"]
+
+    def kaufman_slippage(self, price: float, bar_high: float, bar_low: float) -> float:
+        return self.volatility_slippage(price, bar_high, bar_low)
+
+    def kyle_lambda(self, price: float, quantity: float, bar_volume: float,
+                    bar_high: float, bar_low: float) -> float:
+        return self.participation_impact(
+            price, quantity, bar_volume, bar_high, bar_low
+        )
+
+
+# ---------------------------------------------------------------------------
+# Cost-stress scenarios (BASE / CONSERVATIVE / STRESS)
+# ---------------------------------------------------------------------------
+
+def retail_cost_scenario(name: str = "BASE", **overrides) -> RetailCostModel:
+    """Named retail friction presets for cost-stress testing.
+
+    Assumptions are configurable modelling choices, not universal truths.
+    Stress levels are severe-but-plausible — not arbitrary giant costs.
+    """
+    presets = {
+        "BASE": dict(
+            spread_bps=5.0,
+            volatility_slippage_factor=0.10,
+            impact_factor=0.10,
+            impact_exponent=0.5,
+            max_participation_rate=0.05,
+        ),
+        "CONSERVATIVE": dict(
+            spread_bps=10.0,
+            volatility_slippage_factor=0.20,
+            impact_factor=0.20,
+            impact_exponent=0.6,
+            max_participation_rate=0.03,
+        ),
+        "STRESS": dict(
+            spread_bps=25.0,
+            volatility_slippage_factor=0.40,
+            impact_factor=0.40,
+            impact_exponent=0.7,
+            max_participation_rate=0.01,
+        ),
+    }
+    key = name.upper()
+    if key not in presets:
+        raise ValueError(
+            f"Unknown retail cost scenario {name!r}; "
+            f"expected one of {sorted(presets)}"
+        )
+    params = {**presets[key], **overrides}
+    return RetailCostModel(**params)

@@ -25,10 +25,27 @@ import numpy as np
 
 
 def max_drawdown_of_returns(returns: np.ndarray) -> float:
-    """Peak-to-trough drawdown of a return path on a cumulative-sum equity."""
-    equity = np.concatenate([[0.0], np.cumsum(returns)])
+    """Fractional peak-to-trough drawdown of a **simple-return** path.
+
+    Wealth is constructed geometrically:
+
+        equity = cumprod(1 + simple_returns)   (starts at 1.0)
+
+    and the returned depth is ``max((HWM - equity) / HWM)`` — a non-negative
+    fraction comparable in magnitude to ``abs(analytics.performance.max_drawdown)``.
+
+    Do not pass additive P&L or log returns here; convert explicitly first.
+    """
+    r = np.asarray(returns, dtype=float)
+    if r.size == 0:
+        return 0.0
+    if np.any(~np.isfinite(r)):
+        raise ValueError("returns contain NaN/inf")
+    if np.any(r <= -1.0):
+        raise ValueError("simple returns must be > -1 for wealth construction")
+    equity = np.concatenate([[1.0], np.cumprod(1.0 + r)])
     hwm = np.maximum.accumulate(equity)
-    return float((hwm - equity).max())
+    return float(((hwm - equity) / np.maximum(hwm, 1e-12)).max())
 
 
 def single_loop_dd_quantile(returns, horizon: int, n_sims: int, conf: float,

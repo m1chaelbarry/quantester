@@ -17,9 +17,9 @@ from quantester.events import (
 from quantester.execution.costs import ConservativeFrictionCostModel, CostModel
 from quantester.execution.simulator import SimulatedExecutionHandler
 
-T0 = pd.Timestamp("2024-01-02")
-T1 = pd.Timestamp("2024-01-03")
-T2 = pd.Timestamp("2024-01-04")
+T0 = pd.Timestamp("2024-01-02", tz="UTC")
+T1 = pd.Timestamp("2024-01-03", tz="UTC")
+T2 = pd.Timestamp("2024-01-04", tz="UTC")
 
 BAR = pd.Series({"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5,
                  "volume": 1e6})

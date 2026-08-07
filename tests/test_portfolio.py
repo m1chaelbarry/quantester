@@ -156,9 +156,9 @@ def test_margin_monitor_liquidation():
 # ------------------------------------------------------- daily drawdown breaker
 
 D1, D2, D3 = (
-    pd.Timestamp("2024-01-02"),
-    pd.Timestamp("2024-01-03"),
-    pd.Timestamp("2024-01-04"),
+    pd.Timestamp("2024-01-02", tz="UTC"),
+    pd.Timestamp("2024-01-03", tz="UTC"),
+    pd.Timestamp("2024-01-04", tz="UTC"),
 )
 
 
@@ -191,7 +191,7 @@ def test_breaker_threshold_and_rollover_reset():
 def test_breaker_liquidates_cancels_and_blocks_entries():
     from quantester.data.streaming import StreamingDataHandler
 
-    idx = pd.bdate_range("2024-01-02", periods=4)
+    idx = pd.bdate_range("2024-01-02", periods=4, tz="UTC")
     df = pd.DataFrame(
         {"open": 100.0, "high": 100.0, "low": 100.0, "close": 100.0,
          "volume": 1e6},
@@ -241,7 +241,7 @@ def test_breaker_liquidates_cancels_and_blocks_entries():
 def test_moc_signal_routing_and_delay_guard():
     from quantester.data.streaming import StreamingDataHandler
 
-    idx = pd.bdate_range("2024-01-02", periods=2)
+    idx = pd.bdate_range("2024-01-02", periods=2, tz="UTC")
     df = pd.DataFrame(
         {"open": 100.0, "high": 100.0, "low": 100.0, "close": 100.0,
          "volume": 1e6},
@@ -281,7 +281,7 @@ def test_idle_cash_yield_accrual():
     expected = 100_000.0 * (1 + 0.04 * 0.5 / 365.0)
     assert portfolio.cash == pytest.approx(expected)
     # Calendar gaps accrue elapsed days, not bars (Jan 3 -> Jan 8 = 5 days).
-    portfolio.update_portfolio_valuation(_valuation(pd.Timestamp("2024-01-08"), 100.0))
+    portfolio.update_portfolio_valuation(_valuation(pd.Timestamp("2024-01-08", tz="UTC"), 100.0))
     assert portfolio.cash == pytest.approx(
         expected * (1 + 0.04 * 0.5 * 5 / 365.0)
     )

@@ -46,15 +46,18 @@ hat.paths                            # (n_sims, horizon+1) equity paths, start a
 ```
 
 - `empirical_resample(returns, horizon, n_sims, seed, block_length=None)` —
-  "hat" resampling: draw historical net returns **with replacement** to build
-  synthetic paths (e.g. 260-day years), preserving the exact empirical
-  distribution. Pass `block_length=L` for a stationary block bootstrap that
-  preserves serial correlation within blocks.
+  "hat" resampling of **simple** (net) returns. Equity paths compound with
+  `cumprod(1 + r)` (never `1 + cumsum`). Pass `block_length=L` for a
+  fixed-length block bootstrap that preserves serial correlation within
+  blocks. Returns `<= -1` are rejected.
+- Prefer `adaptive_empirical_resample` (`montecarlo/adaptive.py`) when you
+  want the autocorrelation gate to choose IID vs block bootstrap
+  automatically (forcing IID under dependence emits a warning).
 - `ehlers_randomized_equity(win_rate, profit_factor, avg_loss, n_trades,
   n_sims=10_000, e0=1.0, seed=None)` — Ehlers' parametric randomization: the
   system is stripped to win-rate p and profit factor PF; each trade draws
   u ~ U(0,1), wins `|avg_loss| × PF` if u ≤ p, else loses `|avg_loss|`.
-  Returns `(n_sims, n_trades+1)` equity paths.
+  Returns `(n_sims, n_trades+1)` equity paths (additive **dollar** PnL).
 
 ## MCPT — Monte Carlo Permutation Testing
 

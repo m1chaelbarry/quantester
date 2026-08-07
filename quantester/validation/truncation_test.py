@@ -1,4 +1,4 @@
-"""Ernest Chan's historical truncation test: look-ahead leakage detector.
+"""Ernest Chan's historical truncation test: temporal-leakage diagnostic.
 
 Protocol (Chan, "Quantitative Trading", 2nd ed., backtesting chapter; the
 exact test is not covered by the user's quant-literature notebook, so it is
@@ -9,10 +9,13 @@ implemented from Chan's canonical description and Report 1 section 4.1):
 - Run B: truncate the last ``n_truncated`` trading days from the data, re-run
   the identical program, save ``positions_B.csv``.
 - Comparison: drop the final ``n_truncated`` rows of A so it matches B's
-  date-index length; the two ledgers must be element-wise identical to a
-  floating-point tolerance of 1e-9. Any divergence proves the pipeline
-  consumed future data (look-ahead leakage) and raises ``ValueError``
-  pinpointing the exact timestamp of the first divergence.
+  date-index length; the two ledgers must agree within a floating-point
+  absolute tolerance of 1e-9
+  (``abs(position_full[t] - position_truncated[t]) <= atol``). Any divergence
+  is strong evidence the pipeline consumed future data (look-ahead leakage)
+  and raises ``ValueError`` pinpointing the first divergence. This is a
+  diagnostic, not a formal mathematical proof that all look-ahead is
+  impossible.
 
 Truncation is performed against the master (outer-join union) calendar:
 removing the last N master timestamps from every leg keeps Run B's calendar

@@ -14,8 +14,8 @@ Implementation notes (ccxt 4.x API, per official docs):
   cap page size (sometimes below the requested limit), so history is walked
   forward by advancing since = last_timestamp + timeframe_ms until a page
   returns no new rows or the walk reaches the requested end / the present.
-- Timestamps are milliseconds since epoch (UTC); we store tz-naive UTC so the
-  master calendar stays comparable across providers.
+- Timestamps are milliseconds since epoch (UTC); we store timezone-aware UTC
+  so the master calendar stays comparable across providers.
 - The still-forming candle for the current period is dropped by default
   (drop_incomplete=True): its high/low/close contain prints that would not
   have existed at the bar's open, i.e. implicit look-ahead inside the last
@@ -118,11 +118,12 @@ def _fetch_symbol_ohlcv(exchange, symbol: str, timeframe: str = "1d",
     df = pd.DataFrame([r[:6] for r in rows],
                       columns=["timestamp_ms", *_COLUMNS])
     df.index = pd.DatetimeIndex(
-        pd.to_datetime(df.pop("timestamp_ms"), unit="ms"), name="datetime"
+        pd.to_datetime(df.pop("timestamp_ms"), unit="ms", utc=True),
+        name="datetime",
     )
 
     if until_ms is not None:
-        cutoff = pd.to_datetime(until_ms, unit="ms")
+        cutoff = pd.to_datetime(until_ms, unit="ms", utc=True)
         df = df.loc[df.index <= cutoff]
 
     if drop_incomplete and len(df):
