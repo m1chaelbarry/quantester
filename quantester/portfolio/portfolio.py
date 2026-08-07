@@ -11,9 +11,19 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from ..events import BUY, EXIT, LONG, MARKET_ORDER, SELL, SHORT, OrderEvent
+from ..events import (
+    BUY,
+    CANCEL_ORDER,
+    EXIT,
+    LIMIT_ORDER,
+    LONG,
+    MARKET_ORDER,
+    SELL,
+    SHORT,
+    OrderEvent,
+)
 from .base import Portfolio
-from .risk import MarginMonitor
+from .risk import DailyDrawdownBreaker, MarginMonitor
 
 
 class FixedUnitSizer:
@@ -45,12 +55,14 @@ class PercentEquitySizer:
 
 class PortfolioManager(Portfolio):
     def __init__(self, data_handler, initial_capital: float = 100_000.0,
-                 sizer=None, margin_monitor: MarginMonitor | None = None):
+                 sizer=None, margin_monitor: MarginMonitor | None = None,
+                 drawdown_breaker: DailyDrawdownBreaker | None = None):
         self.data_handler = data_handler
         self.initial_capital = float(initial_capital)
         self.cash = float(initial_capital)
         self.sizer = sizer or PercentEquitySizer(0.5)
         self.margin_monitor = margin_monitor
+        self.drawdown_breaker = drawdown_breaker
 
         self.positions: dict = {}
         self.last_prices: dict = {}
@@ -92,6 +104,10 @@ class PortfolioManager(Portfolio):
     # ------------------------------------------------------------------ signals
 
     def _reference_price(self, signal) -> float | None:
+        # Limit-priced signals size the target AT the limit price: the strategy
+        # declares q = equity * strength / limit_price against latched levels.
+        if getattr(signal, "limit_price", None) is not None:
+            return float(signal.limit_price)
         if signal.delay == 0:
             price = self.data_handler.get_current_open(signal.symbol)
             return None if price is None else float(price)
@@ -101,6 +117,27 @@ class PortfolioManager(Portfolio):
         return float(bars["close"].iloc[-1])
 
     def update_from_signal(self, signal, events_queue):
+        if self.drawdown_breaker is not None and self.drawdown_breaker.halted:
+            # Circuit breaker: ALL signal flow is suspended until the daily
+            # rollover. Positions are already being flattened by the breaker's
+            # own liquidation orders (parked in the ledger and retried at every
+            # open until filled), so strategy exits are redundant; dropping
+            # them also prevents a duplicate flatten from overselling short.
+            return
+        if getattr(signal, "cancel_orders", False):
+            # Book purge requested (e.g. tranche ladders on EXIT): resting
+            # orders must not survive the exit and re-enter on their own. The
+            # purge is synchronous on the execution side.
+            events_queue.put(
+                OrderEvent(
+                    timestamp=signal.timestamp,
+                    symbol=signal.symbol,
+                    order_type=CANCEL_ORDER,
+                    quantity=0.0,
+                    direction=BUY,  # placeholder; unused by the ledger purge
+                    earliest_fill_time=signal.timestamp,
+                )
+            )
         ref_price = self._reference_price(signal)
         if ref_price is None:
             return  # untradeable at this timestamp (availability mask)
@@ -112,14 +149,16 @@ class PortfolioManager(Portfolio):
         fill_time = self.data_handler.timestamp_at_offset(signal.timestamp, signal.delay)
         if fill_time is None:
             return  # no future bar exists to fill on (end of data)
+        order_type = LIMIT_ORDER if signal.limit_price is not None else MARKET_ORDER
         events_queue.put(
             OrderEvent(
                 timestamp=signal.timestamp,
                 symbol=signal.symbol,
-                order_type=MARKET_ORDER,
+                order_type=order_type,
                 quantity=abs(delta),
                 direction=BUY if delta > 0 else SELL,
                 earliest_fill_time=fill_time,
+                limit_price=signal.limit_price,
             )
         )
 
@@ -201,6 +240,44 @@ class PortfolioManager(Portfolio):
             and self.margin_monitor.is_breach(equity, self.gross_exposure)
         ):
             self._liquidate(market_event, events_queue)
+
+        if (
+            events_queue is not None
+            and self.drawdown_breaker is not None
+            and self.drawdown_breaker.update(market_event.timestamp, equity)
+        ):
+            self._breaker_liquidate(market_event, events_queue)
+
+    def _breaker_liquidate(self, market_event, events_queue):
+        """Circuit breaker: cancel every resting order across the book, then
+        market-liquidate all open positions at the next bar's open."""
+        for symbol in self.data_handler.symbols:
+            events_queue.put(
+                OrderEvent(
+                    timestamp=market_event.timestamp,
+                    symbol=symbol,
+                    order_type=CANCEL_ORDER,
+                    quantity=0.0,
+                    direction=BUY,  # placeholder; unused by the ledger purge
+                    earliest_fill_time=market_event.timestamp,
+                )
+            )
+        fill_time = self.data_handler.timestamp_at_offset(market_event.timestamp, 1)
+        if fill_time is None:
+            return  # no future bar exists to liquidate on (end of data)
+        for symbol, qty in list(self.positions.items()):
+            if abs(qty) < 1e-12:
+                continue
+            events_queue.put(
+                OrderEvent(
+                    timestamp=market_event.timestamp,
+                    symbol=symbol,
+                    order_type=MARKET_ORDER,
+                    quantity=abs(qty),
+                    direction=SELL if qty > 0 else BUY,
+                    earliest_fill_time=fill_time,
+                )
+            )
 
     def _liquidate(self, market_event, events_queue):
         targets = self.margin_monitor.liquidation_targets(self.positions)
