@@ -43,6 +43,21 @@ python examples/run_custom_strategy.py  # build a strategy from scratch (tutoria
 python examples/run_monte_carlo.py      # Monte Carlo validation suite
 ```
 
+## Market data providers
+
+All feeds share one streaming implementation, so the temporal firewall and
+availability-mask semantics are identical regardless of source:
+
+- `HistoricCSVDataHandler` — local `datetime,open,high,low,close,volume` CSVs.
+- `YFinanceDataHandler` — free Yahoo Finance OHLCV
+  (`pip install "quantester[yfinance]"`).
+- `CCXTDataHandler` — free OHLCV from 100+ crypto exchanges via ccxt
+  (`pip install "quantester[ccxt]"`, or `quantester[data]` for both).
+
+```bash
+python examples/run_market_data.py   # live-data backtest via yfinance + ccxt
+```
+
 ## Documentation
 
 Full documentation lives in [`docs/`](docs/README.md):
