@@ -74,8 +74,8 @@ def test_latch_and_tranche_fills_exact_capital_mapping():
     bars = _ramp()
     bars += [
         (100.0, 100.0, 99.80, 99.83),   # 200: dips through T1 and T2
-        (99.83, 99.85, 99.70, 99.76),   # 201: dips through T3
-        (99.76, 100.05, 99.75, 100.02), # 202: close back above SMA5 -> exit
+        (99.83, 99.85, 99.76, 99.78),   # 201: dips through T3 (low > stop)
+        (99.78, 100.05, 99.77, 100.02), # 202: close back above SMA5 -> exit
         (100.04, 100.06, 99.90, 100.05),# 203: exit fills at this open
     ] + [(100.05, 100.05, 100.05, 100.05)] * 5  # flat: re-latch, no fills
     strategy, portfolio = _run(bars)
@@ -125,24 +125,33 @@ def test_regime_filter_blocks_entries_below_sma200():
     assert portfolio.trades == []
 
 
-def test_close_based_stop_flattens_position():
+def test_hard_stop_triggers_on_low_and_exits_at_close():
+    """Kaufman close-execution rule (notebook-verified): the intra-bar LOW
+    triggers the stop; the exit fills at that same bar's close — not the next
+    open, and never at the guaranteed stop price."""
     bars = _ramp()
     bars += [
-        (100.0, 100.0, 99.80, 99.83),  # 200: fills T1, T2
-        (99.83, 99.85, 99.60, 99.70),  # 201: fills T3; close <= latched stop
-        (99.68, 99.70, 99.60, 99.65),  # 202: stop exit fills at this open
-        # 203+: still bullish, so the machine re-latches at 202's close; these
-        # lows stay above the fresh T1 (~99.886), so no new tranche fills.
-    ] + [(99.95, 99.95, 99.95, 99.95)] * 3
+        (100.0, 100.0, 99.80, 99.83),  # 200: fills T1, T2 (low above stop)
+        # 201: low breaches the latched stop (T3 fills at the open first);
+        # the close stays ABOVE the stop — a close-triggered stop would not
+        # fire, proving the low trigger + same-close fill.
+        (99.83, 99.85, 99.60, 99.77),
+        # 202+: still bullish, so the machine re-anchors; these lows stay above
+        # the fresh T1 (~99.88), so no new tranche fills.
+    ] + [(99.92, 99.92, 99.92, 99.92)] * 3
     _, portfolio = _run(bars)
 
     _, _, thresholds, stop = _latched_levels(bars)
-    assert 99.70 <= stop  # the stop trigger was the close, not the intra-bar low
+    frame = _frame(bars)
+    assert bars[201][2] <= stop < bars[201][3]  # low breached, close did not
     buys = [f for f in portfolio.fills if f.direction == BUY]
     sells = [f for f in portfolio.fills if f.direction == SELL]
     assert len(buys) == 3  # gap bar took out all three resting limits
     assert [f.reference_price for f in buys] == pytest.approx(thresholds)
-    assert len(sells) == 1 and sells[0].fill_price == pytest.approx(99.68)
+    assert len(sells) == 1
+    assert sells[0].timestamp == frame.index[201]   # same-bar close auction
+    assert sells[0].fill_price == pytest.approx(99.77)  # the close print
+    assert sells[0].quantity == pytest.approx(sum(b.quantity for b in buys))
     assert portfolio.positions == {}
     assert len(portfolio.trades) == 1 and portfolio.trades[0]["pnl"] < 0
 

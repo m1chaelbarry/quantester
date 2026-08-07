@@ -7,6 +7,7 @@ from quantester.events import (
     BUY,
     CANCEL_ORDER,
     LIMIT_ORDER,
+    MOC_ORDER,
     SELL,
     STOP_ORDER,
     MARKET_ORDER,
@@ -218,6 +219,42 @@ def test_cancel_order_purges_resting_book():
     assert len(queue) == 1
     assert queue[0].quantity == 7 and queue[0].direction == SELL
     assert queue[0].timestamp == T2
+
+
+def test_moc_fills_at_close_same_bar_only():
+    """Market-on-close: fills at the close print of its own bar, and a stale
+    MOC expires instead of filling at a later close (live auction semantics)."""
+    execution = SimulatedExecutionHandler(CostModel(**_ZERO))
+    queue = _Queue()
+    execution.on_market(_market(T0), queue)  # BAR close = 100.5
+    moc = OrderEvent(T0, "AAA", MOC_ORDER, 10, SELL, earliest_fill_time=T0)
+    execution.execute_order(moc, queue)
+    assert len(queue) == 1
+    assert queue[0].fill_price == pytest.approx(100.5)   # close, not the open
+    assert queue[0].timestamp == T0
+
+    # Submitted after its bar has passed: expires unfilled, never parks.
+    execution2 = SimulatedExecutionHandler(CostModel(**_ZERO))
+    queue2 = _Queue()
+    execution2.on_market(_market(T1), queue2)
+    stale = OrderEvent(T1, "AAA", MOC_ORDER, 10, SELL, earliest_fill_time=T0)
+    execution2.execute_order(stale, queue2)
+    assert len(queue2) == 0
+    execution2.on_market(_market(T2), queue2)  # later bars cannot revive it
+    assert len(queue2) == 0
+
+
+def test_moc_fill_pays_friction():
+    model = ConservativeFrictionCostModel(spread_pct=0.0002, fee_rate=0.0004)
+    execution = SimulatedExecutionHandler(model)
+    queue = _Queue()
+    execution.on_market(_market(T0), queue)  # BAR: close 100.5
+    moc = OrderEvent(T0, "AAA", MOC_ORDER, 10, BUY, earliest_fill_time=T0)
+    execution.execute_order(moc, queue)
+    fill = queue[0]
+    assert fill.reference_price == pytest.approx(100.5)
+    assert fill.fill_price == pytest.approx(100.5 + 100.5 * 0.0002)
+    assert fill.commission == pytest.approx(2 * 0.0004 * 10 * 100.5)
 
 
 def test_conservative_friction_model_math():

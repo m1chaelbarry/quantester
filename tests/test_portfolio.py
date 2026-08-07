@@ -10,6 +10,7 @@ from quantester.events import (
     EXIT,
     LONG,
     MARKET_ORDER,
+    MOC_ORDER,
     SELL,
     FillEvent,
     MarketEvent,
@@ -229,3 +230,68 @@ def test_breaker_liquidates_cancels_and_blocks_entries():
     n = len(queue)
     portfolio.update_from_signal(SignalEvent(D3, "AAA", LONG, strength=0.5), queue)
     assert len(queue) > n
+
+
+# ------------------------------------------------------------- MOC routing
+
+def test_moc_signal_routing_and_delay_guard():
+    from quantester.data.streaming import StreamingDataHandler
+
+    idx = pd.bdate_range("2024-01-02", periods=2)
+    df = pd.DataFrame(
+        {"open": 100.0, "high": 100.0, "low": 100.0, "close": 100.0,
+         "volume": 1e6},
+        index=idx,
+    )
+    handler = StreamingDataHandler({"AAA": df})
+    handler.set_phase("close", D1)
+    portfolio = PortfolioManager(handler, 100_000.0)
+    portfolio.update_from_fill(FillEvent(D1, "AAA", 100, BUY, 100.0, 0.0, 0.0))
+
+    queue = _Queue()
+    portfolio.update_from_signal(
+        SignalEvent(D1, "AAA", EXIT, delay=1, fill_at="close"), queue
+    )
+    moc = [o for o in queue if o.order_type == MOC_ORDER]
+    assert len(moc) == 1
+    assert moc[0].earliest_fill_time == D1  # this bar's close auction
+    assert moc[0].direction == SELL and moc[0].quantity == pytest.approx(100.0)
+
+    # A delay=0 strategy requesting a close fill would trade a print that does
+    # not exist yet at decision time: rejected loudly.
+    with pytest.raises(ValueError):
+        portfolio.update_from_signal(
+            SignalEvent(D1, "AAA", EXIT, delay=0, fill_at="close"), _Queue()
+        )
+
+
+# ------------------------------------------------------------ cash yield
+
+def test_idle_cash_yield_accrual():
+    """Kaufman/Carver (notebook-verified): idle cash earns rate x fraction."""
+    portfolio = _portfolio()
+    portfolio.cash_yield_rate = 0.04
+    portfolio.idle_cash_fraction = 0.5      # Kaufman: half the T-bill rate
+    portfolio.update_portfolio_valuation(_valuation(D1, 100.0))   # baseline ts
+    portfolio.update_portfolio_valuation(_valuation(D2, 100.0))   # +1 day
+    expected = 100_000.0 * (1 + 0.04 * 0.5 / 365.0)
+    assert portfolio.cash == pytest.approx(expected)
+    # Calendar gaps accrue elapsed days, not bars (Jan 3 -> Jan 8 = 5 days).
+    portfolio.update_portfolio_valuation(_valuation(pd.Timestamp("2024-01-08"), 100.0))
+    assert portfolio.cash == pytest.approx(
+        expected * (1 + 0.04 * 0.5 * 5 / 365.0)
+    )
+
+
+def test_idle_cash_yield_off_by_default_and_no_negative_accrual():
+    portfolio = _portfolio()  # defaults: yield disabled
+    portfolio.update_portfolio_valuation(_valuation(D1, 100.0))
+    portfolio.update_portfolio_valuation(_valuation(D2, 100.0))
+    assert portfolio.cash == pytest.approx(100_000.0)
+
+    portfolio2 = _portfolio()
+    portfolio2.cash_yield_rate = 0.04
+    portfolio2.cash = -1_000.0  # borrowed cash accrues nothing
+    portfolio2.update_portfolio_valuation(_valuation(D1, 100.0))
+    portfolio2.update_portfolio_valuation(_valuation(D2, 100.0))
+    assert portfolio2.cash == pytest.approx(-1_000.0)
