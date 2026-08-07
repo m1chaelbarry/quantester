@@ -5,6 +5,18 @@
   guaranteed at the stop price (Cross-Ref-2 section 4.2: perfect stop execution
   understates tail risk and would silently unbound optimal-f): a buy stop
   gapped through at the open fills at the open, not at the stop.
+- Limit orders rest in the ledger until touched: a buy limit fills when the
+  bar's low reaches the limit, at min(open, limit) — a gap down through the
+  limit earns price improvement at the open, never a worse price. Sell limits
+  are symmetric (high reached, fills at max(open, limit)).
+- Market-on-close orders fill at the close print of their earliest_fill_time
+  bar ONLY, and never park in the ledger: missing the close auction expires
+  the order (live MOC semantics). The exact-timestamp gate confines the fill
+  to the close-phase drain of its own bar, so a MOC fill can never use a
+  close print that was not yet known when the decision was made.
+- Cancel orders purge every RESTING order (limit/stop) for the symbol from
+  the ledger; parked market orders are committed executions in flight and are
+  never purged (a cancel must not annul a liquidation already on its way).
 - Orders whose earliest_fill_time has not yet arrived are parked in the
   pending-order ledger and re-evaluated on each open-phase MarketEvent
   (state-tracking ledger; Cross-Ref section 3.1).
@@ -12,7 +24,16 @@
 
 from __future__ import annotations
 
-from ..events import BUY, MARKET_ORDER, OPEN, STOP_ORDER, FillEvent
+from ..events import (
+    BUY,
+    CANCEL_ORDER,
+    LIMIT_ORDER,
+    MARKET_ORDER,
+    MOC_ORDER,
+    OPEN,
+    STOP_ORDER,
+    FillEvent,
+)
 from .base import ExecutionHandler
 from .costs import CostModel
 
@@ -40,6 +61,20 @@ class SimulatedExecutionHandler(ExecutionHandler):
         self._pending = still_pending
 
     def execute_order(self, order, events_queue):
+        if order.order_type == MOC_ORDER:
+            # MOC never parks: fill on its own bar's close or expire.
+            self._try_fill(order, events_queue)
+            return
+        if order.order_type == CANCEL_ORDER:
+            # Synchronous book purge: resting orders (limit/stop) for the
+            # symbol are pulled immediately, regardless of phase or
+            # earliest_fill_time. Parked MARKET orders are executions already
+            # committed (exits/liquidations) and are never purged.
+            self._pending = [
+                o for o in self._pending
+                if not (o.symbol == order.symbol and o.order_type != MARKET_ORDER)
+            ]
+            return
         if (
             self._timestamp is not None
             and order.earliest_fill_time <= self._timestamp
@@ -60,6 +95,14 @@ class SimulatedExecutionHandler(ExecutionHandler):
             reference = self._stop_reference(order, bar)
             if reference is None:
                 return False  # stop not triggered this bar; stays pending
+        elif order.order_type == LIMIT_ORDER:
+            reference = self._limit_reference(order, bar)
+            if reference is None:
+                return False  # limit not touched this bar; keeps resting
+        elif order.order_type == MOC_ORDER:
+            if order.earliest_fill_time != self._timestamp:
+                return False  # stale MOC: its close auction has passed
+            reference = float(bar["close"])
         else:
             raise ValueError(f"Unsupported order type: {order.order_type}")
 
@@ -77,13 +120,30 @@ class SimulatedExecutionHandler(ExecutionHandler):
             quantity=order.quantity,
             direction=order.direction,
             fill_price=fill_price,
-            commission=self.cost_model.commission(order.quantity),
+            commission=self.cost_model.commission(order.quantity, price=reference),
             slippage_cost=adjustment * order.quantity,
             reference_price=reference,
         )
         self.fills.append(fill)
         events_queue.put(fill)
         return True
+
+    @staticmethod
+    def _limit_reference(order, bar) -> float | None:
+        """Resting limit fill price: the limit, or the open when gapped through
+        (price improvement — a limit fill is never worse than the limit)."""
+        limit = order.limit_price
+        if limit is None:
+            raise ValueError("LIMIT order requires limit_price")
+        open_, high, low = float(bar["open"]), float(bar["high"]), float(bar["low"])
+        if order.direction == BUY:
+            if low > limit:
+                return None  # not touched
+            return min(open_, limit)
+        else:
+            if high < limit:
+                return None
+            return max(open_, limit)
 
     @staticmethod
     def _stop_reference(order, bar) -> float | None:

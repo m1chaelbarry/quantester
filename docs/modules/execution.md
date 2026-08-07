@@ -37,6 +37,9 @@ firewall mechanically:
 | --- | --- |
 | `MARKET` | The current bar's **open**, plus the adverse cost adjustment. |
 | `STOP` | The **next available price after the stop is touched**, including gap-through: a buy stop gapped at the open fills *at the open*, not at the stop. Untriggered stops stay pending. |
+| `LIMIT` | Rests in the ledger until touched: a buy limit fills when the bar's low reaches the level, at `min(open, limit)` — a gap through the limit earns price improvement at the open, never a worse price (sells symmetric at `max(open, limit)`). |
+| `MOC` | The bar's **close print**, on its `earliest_fill_time` bar only. Never parks: a missed close auction expires the order (live MOC semantics), so a MOC fill can never use a close print that was not yet known at decision time. |
+| `CANCEL` | No fill — synchronously purges the symbol's resting limit/stop orders from the ledger. Parked **market** orders (committed exits/liquidations in flight) are never purged. |
 
 The fill price is then adjusted **adversely** (up for buys, down for sells,
 floored at ~0): you always pay the adjustment. Fill details — all-in
@@ -69,11 +72,22 @@ class CostModel:
 
 | Method | Computes |
 | --- | --- |
-| `commission(quantity)` | cₜ: `fixed + per_share × qty` — charged separately to cash. |
+| `commission(quantity, price=None)` | cₜ: `fixed + per_share × qty` — charged separately to cash. `price` (the fill reference) is required by notional-fee models. |
 | `half_spread(price)` | `price × spread_pct / 2` — the cost of crossing the spread to take liquidity. |
 | `kaufman_slippage(price, high, low)` | `price × coef × (high − low)/price` — slippage proportional to the bar's volatility. |
 | `kyle_lambda(price, qty, volume, high, low)` | Market impact `dp = λ·dx` with `λ = impact_coef × volatility% / volume`: impact rises with volatility and falls with depth. |
 | `adverse_adjustment(price, qty, bar)` | Sum of the three per-share adjustments; this is what gets embedded in `fill_price` (recorded as φₜ = `slippage_cost`). |
+
+### `ConservativeFrictionCostModel(spread_pct=..., fee_rate=..., friction_multiplier=2.0)`
+
+Stressed exchange friction from the tranche-ladder specification:
+`C_trade = 2 × (S_bid-ask/2 + μ_fee)` — the FULL bid-ask spread as the
+adverse adjustment plus the doubled maker/taker fee on notional, charged on
+**every** fill (resting limit orders included; taker-grade friction on maker
+fills is deliberately pessimistic). Deterministic, so fast-track parity
+holds. Matches Carver's round-trip form `2 × (spread/2 + fee)` per leg
+(notebook cross-reference: "it is better to be conservative and assume costs
+are higher than you'd hope").
 
 ### Cost accounting in one line
 

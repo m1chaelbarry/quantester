@@ -66,13 +66,17 @@ def fast_backtest(ohlc: pd.DataFrame, target: pd.Series, cost_model: CostModel,
         if dq[i] == 0.0:
             fill_price[i] = open_[i]
             continue
-        adj = (
-            cost_model.half_spread(open_[i])
-            + cost_model.kaufman_slippage(open_[i], high[i], low[i])
-            + cost_model.kyle_lambda(open_[i], abs(dq[i]), volume[i], high[i], low[i])
+        # Route through adverse_adjustment (not the individual terms) so any
+        # CostModel override — e.g. ConservativeFrictionCostModel — applies
+        # identically on both tracks.
+        adj = cost_model.adverse_adjustment(
+            open_[i], abs(dq[i]),
+            {"high": high[i], "low": low[i], "volume": volume[i]},
         )
         fill_price[i] = open_[i] + np.sign(dq[i]) * adj
-        commission[i] = cost_model.commission(abs(dq[i]))
+        # Pass the fill reference so notional-based cost models (e.g.
+        # ConservativeFrictionCostModel) charge identical fees on both tracks.
+        commission[i] = cost_model.commission(abs(dq[i]), price=open_[i])
 
     cash = initial_capital + np.cumsum(-dq * fill_price - commission)
     equity = cash + q * close

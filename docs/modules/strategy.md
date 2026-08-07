@@ -72,6 +72,48 @@ strat = MovingAverageCrossStrategy(handler, "AAPL", fast=10, slow=40,
                                    direction="long")
 ```
 
+## Tranche pullback ladder
+
+`quantester/strategy/tranche_pullback.py`.
+
+### `TranchePullbackStrategy(data_handler, symbol, regime_window=200, peak_window=20, atr_window=14, atr_spacing=1.5, tranche_fractions=(0.25, 0.35, 0.40), exit_window=5, stop_atr_mult=5.0)`
+
+Volatility-spaced dip-buying ladder for a single symbol (built for BTC):
+
+- **Regime gate**: arms only while `close > SMA(regime_window)`.
+- **Re-anchoring ladder**: while no tranche is filled, three resting `LIMIT`
+  buys at `T_k = peak − k·atr_spacing·ATR` (peak = rolling `peak_window`
+  close high, Wilder ATR) are canceled and re-anchored every bar; losing the
+  bull regime pulls the unfilled ladder. The **first fill freezes** the
+  levels until the position is completely closed.
+- **Sizing**: tranche fractions ride on `SignalEvent.strength` against
+  `limit_price=T_k`, so wire `PortfolioManager(sizer=PercentEquitySizer(1.0))`
+  for the exact `q_k = equity·f_k/T_k` mapping.
+- **Exits**: mean reversion at `close ≥ SMA(exit_window)` (next bar's open);
+  hard stop at `peak − stop_atr_mult·ATR` executed per Kaufman's
+  close-execution rule (notebook-verified): the intra-bar low triggers a
+  market-on-close exit at that bar's close.
+- `delay=1` (close-phase), no vectorized twin — the latched, path-dependent
+  state machine has no closed form, so validate it with the block-bootstrap
+  harness (see [montecarlo](montecarlo.md#stationary-block-bootstrap-ohlcv))
+  rather than the fast-track.
+
+```python
+from quantester.strategy.tranche_pullback import TranchePullbackStrategy
+from quantester.portfolio.risk import DailyDrawdownBreaker
+from quantester.execution.costs import ConservativeFrictionCostModel
+
+portfolio = PortfolioManager(handler, 25_000.0, sizer=PercentEquitySizer(1.0),
+                             drawdown_breaker=DailyDrawdownBreaker(0.045))
+engine = BacktestEngine(handler, TranchePullbackStrategy(handler, "BTC/USD"),
+                        portfolio,
+                        SimulatedExecutionHandler(ConservativeFrictionCostModel()))
+```
+
+Full evaluation on real CCXT data: `examples/run_tranche_pullback_ccxt.py`;
+parameter study with PBO/DSR gating and bootstrap MC:
+`examples/run_parameter_study_ccxt.py`.
+
 ## Meta-labeling
 
 `quantester/strategy/meta_labeling.py` — the AFML ch. 3 scaffold.

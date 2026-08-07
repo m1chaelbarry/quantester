@@ -59,6 +59,55 @@ def spectral_risk_attribution(returns: pd.DataFrame,
     )
 
 
+class DailyDrawdownBreaker:
+    """Intraday circuit breaker against the daily opening balance.
+
+    Verification status: not covered by the notebook — implemented from the
+    user's strategy specification (prop-evaluation safeguard: trip at a 4.5%
+    intraday loss, a 0.5% cushion below the hard 5.0% daily-loss limit).
+
+    Fires when (day_open_equity - equity) / day_open_equity >= max_intraday_dd
+    on any close-phase valuation. While halted, the portfolio liquidates all
+    positions, cancels every resting order, and drops new entry signals; the
+    halt resets at the next trading-day rollover (timestamp date change).
+
+    Daily opening balance convention: the last equity valuation of the previous
+    trading day (exchange rollover carry). The first valuation of the backtest
+    seeds the baseline from itself, so the breaker cannot trip on day one
+    unless equity later falls below that same-day baseline.
+    """
+
+    def __init__(self, max_intraday_dd: float = 0.045):
+        if not 0.0 < max_intraday_dd < 1.0:
+            raise ValueError("max_intraday_dd must lie in (0, 1)")
+        self.max_intraday_dd = float(max_intraday_dd)
+        self.halted = False
+        self.triggered_count = 0
+        self._day = None
+        self._day_open_equity: float | None = None
+        self._last_equity: float | None = None
+
+    def update(self, timestamp, equity: float) -> bool:
+        """Roll the daily baseline and check the breach; returns True only on
+        the valuation call that newly trips the breaker."""
+        day = pd.Timestamp(timestamp).date()
+        if day != self._day:
+            self._day = day
+            self.halted = False
+            self._day_open_equity = (
+                self._last_equity if self._last_equity is not None else equity
+            )
+        self._last_equity = equity
+        if self.halted or not self._day_open_equity or self._day_open_equity <= 0:
+            return False
+        drawdown = (self._day_open_equity - equity) / self._day_open_equity
+        if drawdown >= self.max_intraday_dd:
+            self.halted = True
+            self.triggered_count += 1
+            return True
+        return False
+
+
 class MarginMonitor:
     """Tracks leverage = gross exposure / equity; breaches trigger liquidation."""
 

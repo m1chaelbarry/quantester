@@ -19,7 +19,11 @@ LONG, SHORT, EXIT = "LONG", "SHORT", "EXIT"
 BUY, SELL = "BUY", "SELL"
 
 # Order types
-MARKET_ORDER, STOP_ORDER = "MARKET", "STOP"
+MARKET_ORDER = "MARKET"
+STOP_ORDER = "STOP"
+LIMIT_ORDER = "LIMIT"
+MOC_ORDER = "MOC"        # market-on-close: this bar's close print only
+CANCEL_ORDER = "CANCEL"  # purge resting limit/stop orders for the symbol
 
 # Bar phases
 OPEN, CLOSE = "open", "close"
@@ -45,7 +49,9 @@ Strategy output: a directional intention for one symbol.
 | `signal_type` | `str` | — | `LONG`, `SHORT`, or `EXIT`. |
 | `strength` | `float` | `1.0` | Conviction multiplier; scales the sizer's target (used by meta-labeling). |
 | `delay` | `int` | `1` | Bars until execution. `1` → fill next bar's open; `0` → fill this bar's open under the intra-bar guard. |
-| `fill_at` | `str` | `"open"` | Reference price the portfolio uses for sizing. |
+| `fill_at` | `str` | `"open"` | Reference price the portfolio uses for sizing. `"close"` requests a market-on-close fill at the **current** bar's close (close-phase `delay >= 1` strategies only). |
+| `limit_price` | `float \| None` | `None` | When set, the portfolio sizes the target **at this price** and rests a `LIMIT` order (tranche ladders priced off latched levels). |
+| `cancel_orders` | `bool` | `False` | Emit a `CANCEL` order first (purge the symbol's resting book). Set on exits by strategies that rest orders, so unfilled levels cannot re-enter after an exit. |
 
 ## `OrderEvent`
 
@@ -54,11 +60,12 @@ A sized order produced by the portfolio manager.
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `symbol` | `str` | Instrument. |
-| `order_type` | `str` | `MARKET` or `STOP`. |
+| `order_type` | `str` | `MARKET`, `STOP`, `LIMIT`, `MOC`, or `CANCEL`. |
 | `quantity` | `float` | Always positive; direction is carried separately. |
 | `direction` | `str` | `BUY` or `SELL`. |
-| `earliest_fill_time` | `pd.Timestamp` | Stamped from the signal's `delay`; the execution ledger will not fill before this time. |
+| `earliest_fill_time` | `pd.Timestamp` | Stamped from the signal's `delay`; the execution ledger will not fill before this time. For `MOC` it must equal the current bar — the fill is that bar's close auction. |
 | `stop_price` | `float \| None` | Trigger price for stop orders. |
+| `limit_price` | `float \| None` | Resting price for limit orders. |
 
 ## `FillEvent`
 

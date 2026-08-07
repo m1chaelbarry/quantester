@@ -9,6 +9,17 @@
 - Correlated Gaussian multi-asset return generator with common/idiosyncratic
   shock injection (section 5.1; the HRP/CLA/IVP allocator bake-off is out of
   scope for this build).
+- Stationary block bootstrap over OHLCV bars (Politis-Romano): resamples
+  contiguous blocks of bars with geometric random lengths, preserving each
+  bar's intra-bar OHLC shape and the short-range serial correlation that iid
+  shuffling destroys, while scrambling the long-run regime sequence. This is
+  the MC null for path-dependent strategies that have no closed-form
+  vectorized twin (the event engine re-runs on each synthetic path).
+  Verification status: protocol endorsed by the notebook cross-reference
+  (Masters' stationary/tapered block bootstrap; de Prado's sequential
+  bootstrap alternative noted); implemented from the canonical
+  Politis-Romano (1994) stationary bootstrap — the OHLC shape-preserving
+  reconstruction is not covered by the notebook.
 """
 
 from __future__ import annotations
@@ -80,6 +91,76 @@ def correlated_gaussian_returns(n_assets: int, n_obs: int, cov: np.ndarray | Non
         signs = rng.choice([-1.0, 1.0], size=n_idio_shocks)
         returns[times, assets] += signs * idio_shock_scale
     return returns
+
+
+def _stationary_bootstrap_indices(n: int, mean_block: float, rng) -> np.ndarray:
+    """Politis-Romano stationary bootstrap index sequence of length n:
+    start uniform; at each step jump to a fresh uniform start with
+    probability 1/mean_block, else continue to the next bar (wrap-around)."""
+    if n < 2:
+        raise ValueError("need at least 2 bars to bootstrap")
+    if mean_block < 1.0:
+        raise ValueError("mean_block must be >= 1 (1 = iid shuffle)")
+    idx = np.empty(n, dtype=np.int64)
+    idx[0] = rng.integers(0, n)
+    jump = rng.random(n - 1) < (1.0 / mean_block)
+    fresh = rng.integers(0, n, size=n - 1)
+    for t in range(1, n):
+        idx[t] = fresh[t - 1] if jump[t - 1] else (idx[t - 1] + 1) % n
+    return idx
+
+
+def bootstrap_ohlcv(frame: pd.DataFrame, mean_block: float = 20.0,
+                    seed: int | None = None) -> pd.DataFrame:
+    """Stationary block bootstrap of an OHLCV frame, shape-preserving.
+
+    Each original bar j contributes its close-to-close return, open gap
+    (open_j / close_{j-1}), intra-bar up/down wick fractions and volume; the
+    synthetic bar rebuilds OHLC multiplicatively off the running synthetic
+    close, so high >= max(open, close) and low <= min(open, close) hold by
+    construction. Blocks of consecutive bars are resampled jointly (mean
+    length `mean_block`), preserving short-range dependence and volatility
+    clustering inside blocks while destroying the long-run regime ordering.
+    Deterministic under a fixed seed; the index/calendar is reused as-is.
+    """
+    df = frame[["open", "high", "low", "close", "volume"]].astype(float)
+    n = len(df)
+    close = df["close"].to_numpy()
+    open_ = df["open"].to_numpy()
+    prev_close = np.concatenate([[close[0]], close[:-1]])
+    ret = close / prev_close - 1.0
+    ret[0] = 0.0
+    gap = open_ / prev_close
+    up = df["high"].to_numpy() / np.maximum(open_, close)   # >= 1
+    dn = df["low"].to_numpy() / np.minimum(open_, close)    # <= 1
+    volume = df["volume"].to_numpy()
+
+    rng = np.random.default_rng(seed)
+    idx = _stationary_bootstrap_indices(n, mean_block, rng)
+
+    s_open = np.empty(n)
+    s_close = np.empty(n)
+    c_prev = close[0]
+    for t in range(n):
+        j = idx[t]
+        o = c_prev * gap[j]
+        c = c_prev * (1.0 + ret[j])
+        s_open[t] = o
+        s_close[t] = c
+        c_prev = c
+    oc_max = np.maximum(s_open, s_close)
+    oc_min = np.minimum(s_open, s_close)
+    out = pd.DataFrame(
+        {
+            "open": s_open,
+            "high": oc_max * up[idx],
+            "low": oc_min * dn[idx],
+            "close": s_close,
+            "volume": volume[idx],
+        },
+        index=frame.index,
+    )
+    return out
 
 
 def otr_sweep(paths: np.ndarray, stop_losses, take_profits,

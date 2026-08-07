@@ -39,10 +39,12 @@ permutation testing, drawdown double bootstrap, O-U synthetic paths).
 pip install -e .[dev]
 pytest
 python examples/run_ma_cross.py         # backtest + tearsheet + truncation check
-<<<<<<< HEAD
 python examples/run_custom_strategy.py  # build a strategy from scratch (tutorial companion)
 python examples/run_monte_carlo.py      # Monte Carlo validation suite
 python examples/run_visualizations.py   # chart gallery + interactive viewer demo
+python examples/run_tranche_pullback.py        # BTC tranche pullback ladder (synthetic)
+python examples/run_tranche_pullback_ccxt.py   # ... on real CCXT BTC data + audits
+python examples/run_parameter_study_ccxt.py    # parameter grid + PBO/DSR + bootstrap MC
 ```
 
 ## Visualization
