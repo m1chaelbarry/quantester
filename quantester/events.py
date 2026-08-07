@@ -28,6 +28,8 @@ SELL = "SELL"
 
 MARKET_ORDER = "MARKET"
 STOP_ORDER = "STOP"
+LIMIT_ORDER = "LIMIT"
+CANCEL_ORDER = "CANCEL"  # purge resting limit/stop orders for the symbol
 
 OPEN = "open"
 CLOSE = "close"
@@ -72,14 +74,23 @@ class SignalEvent(Event):
     strength: float = 1.0
     delay: int = 1
     fill_at: str = OPEN
+    limit_price: Optional[float] = None
+    cancel_orders: bool = False
 
-    def __init__(self, timestamp, symbol, signal_type, strength=1.0, delay=1, fill_at=OPEN):
+    def __init__(self, timestamp, symbol, signal_type, strength=1.0, delay=1,
+                 fill_at=OPEN, limit_price=None, cancel_orders=False):
         super().__init__(SIGNAL, timestamp)
         self.symbol = symbol
         self.signal_type = signal_type
         self.strength = strength
         self.delay = delay
         self.fill_at = fill_at
+        # When set, the portfolio sizes the target AT this price and rests a
+        # LIMIT order (e.g. tranche ladders priced off latched levels).
+        self.limit_price = limit_price
+        # Strategies that rest orders (limit ladders) set this on EXIT to purge
+        # the book: unfilled resting levels must not survive the exit.
+        self.cancel_orders = cancel_orders
 
 
 @dataclass
@@ -92,14 +103,15 @@ class OrderEvent(Event):
     """
 
     symbol: str
-    order_type: str  # MARKET / STOP
+    order_type: str  # MARKET / STOP / LIMIT / CANCEL
     quantity: float  # always positive
     direction: str  # BUY / SELL
     earliest_fill_time: pd.Timestamp
     stop_price: Optional[float] = None
+    limit_price: Optional[float] = None
 
     def __init__(self, timestamp, symbol, order_type, quantity, direction,
-                 earliest_fill_time, stop_price=None):
+                 earliest_fill_time, stop_price=None, limit_price=None):
         super().__init__(ORDER, timestamp)
         self.symbol = symbol
         self.order_type = order_type
@@ -107,6 +119,7 @@ class OrderEvent(Event):
         self.direction = direction
         self.earliest_fill_time = earliest_fill_time
         self.stop_price = stop_price
+        self.limit_price = limit_price
 
 
 @dataclass

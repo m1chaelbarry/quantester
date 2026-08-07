@@ -29,8 +29,13 @@ class CostModel:
     slippage_vol_coef: float = 0.1       # Kaufman coefficient on bar range pct
     impact_coef: float = 0.1             # Kyle lambda scale (Amihud-style)
 
-    def commission(self, quantity: float) -> float:
-        """c_t: proportional + fixed exchange/clearing/regulatory costs."""
+    def commission(self, quantity: float, price: float | None = None) -> float:
+        """c_t: proportional + fixed exchange/clearing/regulatory costs.
+
+        `price` is the fill reference price; the base model is price-independent
+        (per-share schedule), but notional-based models (e.g. bps-of-notional
+        exchange fees) require it.
+        """
         if quantity <= 0:
             return 0.0
         return self.fixed_commission + self.per_share_commission * quantity
@@ -67,3 +72,41 @@ class CostModel:
             + self.kyle_lambda(price, quantity, float(bar["volume"]),
                                float(bar["high"]), float(bar["low"]))
         )
+
+
+@dataclass
+class ConservativeFrictionCostModel(CostModel):
+    """Stressed exchange friction: C_trade = 2 * (S_bid-ask / 2 + mu_fee).
+
+    Verification status: not covered by the notebook — implemented from the
+    user's strategy specification (two times the standard bid-ask spread
+    penalty plus explicit maker/taker fees, both doubled as a conservatism
+    stress for prop-evaluation / small-account risk rules).
+
+    - Adverse adjustment (phi_t): friction_multiplier * half-spread, i.e. the
+      FULL bid-ask spread at the default 2x multiplier. Kaufman range slippage
+      and Kyle impact are zeroed here: the spec's friction term subsumes them.
+    - Commission (c_t): friction_multiplier * fee_rate * notional, the doubled
+      maker/taker fee schedule.
+
+    Applied uniformly to every fill (market and resting limit alike): charging
+    taker-grade friction on post-only maker fills is deliberately pessimistic.
+    Deterministic in (order, bar) so event engine and MC fast-track stay in
+    parity.
+    """
+
+    fee_rate: float = 0.0004          # mu_fee: per-side fee as fraction of notional
+    friction_multiplier: float = 2.0  # the spec's 2x conservatism stress
+
+    def adverse_adjustment(self, price: float, quantity: float, bar) -> float:
+        return self.friction_multiplier * self.half_spread(price)
+
+    def commission(self, quantity: float, price: float | None = None) -> float:
+        if quantity <= 0:
+            return 0.0
+        if price is None or price <= 0:
+            raise ValueError(
+                "ConservativeFrictionCostModel.commission requires the fill "
+                "reference price to charge notional-based fees."
+            )
+        return self.friction_multiplier * self.fee_rate * quantity * price
