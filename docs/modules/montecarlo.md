@@ -157,6 +157,35 @@ matrices with a Cholesky correlation structure plus injected common and
 idiosyncratic shocks (fat tails, regime shifts) for stress-testing
 allocators.
 
+## Stationary block bootstrap (OHLCV)
+
+`quantester/montecarlo/synthetic.py` — the Monte Carlo vehicle for
+**path-dependent strategies with no closed-form vectorized twin** (e.g. the
+tranche pullback ladder): instead of a fast-track, the full event engine
+re-runs on each synthetic path.
+
+```python
+from quantester.montecarlo.synthetic import bootstrap_ohlcv
+
+frame = bootstrap_ohlcv(df, mean_block=20, seed=42)
+```
+
+Politis-Romano stationary bootstrap over bars: block lengths are geometric
+(mean `mean_block`), and each bar contributes its close-to-close return,
+open gap, intra-bar wick fractions and volume **jointly**, so
+`high ≥ max(open, close)` and `low ≤ min(open, close)` hold by construction.
+Within-block serial correlation and volatility clustering survive; the
+long-run regime ordering is scrambled — that scrambling is the null
+hypothesis ("BTC-like short-run structure, shuffled regimes"), not a claim
+that history will repeat. Seeded via `numpy.random.Generator`.
+
+Protocol endorsed by the notebook cross-reference (Masters' stationary /
+tapered block bootstrap; de Prado's sequential bootstrap as the alternative);
+implemented from the canonical Politis-Romano (1994) source. See
+`examples/run_parameter_study_ccxt.py` for the full harness
+(autocorrelation gate → bootstrap paths → per-path engine re-runs →
+no-edge probability and same-path buy-and-hold benchmark).
+
 ## Autocorrelation gate
 
 `quantester/montecarlo/diagnostics.py` — **run this before any resampling.**

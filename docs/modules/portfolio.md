@@ -12,14 +12,25 @@ and enforces risk overlays and margin.
 
 ```python
 from quantester.portfolio.portfolio import PortfolioManager, PercentEquitySizer
-from quantester.portfolio.risk import MarginMonitor
+from quantester.portfolio.risk import DailyDrawdownBreaker, MarginMonitor
 
 portfolio = PortfolioManager(
     handler,
     initial_capital=100_000.0,
     sizer=PercentEquitySizer(0.9),                 # default: PercentEquitySizer(0.5)
-    margin_monitor=MarginMonitor(max_leverage=2.0) # optional
+    margin_monitor=MarginMonitor(max_leverage=2.0), # optional
+    drawdown_breaker=DailyDrawdownBreaker(0.045),  # optional, see Risk overlays
+    cash_yield_rate=0.02, idle_cash_fraction=0.5,  # optional idle-cash yield
 )
+```
+
+Idle-cash yield (notebook-verified accounting): positive cash accrues
+`cash_yield_rate × idle_cash_fraction` annualized, compounded by elapsed
+calendar time between close-phase valuations — Kaufman credits **half** the
+3-month T-bill rate on unallocated cash, and Carver requires including the
+risk-free rate on undeployed cash in non-derivative backtests. Default
+`cash_yield_rate=0.0` disables accrual; borrowed (negative) cash accrues
+nothing.
 ```
 
 ### What it does on each event
@@ -91,6 +102,23 @@ Tracks `leverage = gross_exposure / equity` (∞ when equity ≤ 0). On a breach
 (`leverage > max_leverage`) at close-phase valuation, the portfolio emits
 orders shrinking **every** position by `liquidation_fraction`, fillable at the
 next bar's open.
+
+### `DailyDrawdownBreaker(max_intraday_dd=0.045)`
+
+Account-level circuit breaker against the **daily opening balance** (the
+prior trading day's last valuation — the exchange-rollover carry). When
+close-marked equity falls `≥ max_intraday_dd` below it, the portfolio:
+
+1. cancels every resting order across the book (`CANCEL`),
+2. market-liquidates all positions at the next bar's open (retried each open
+   until filled), and
+3. suspends **all** signal flow until the next trading-day rollover resets
+   the halt.
+
+0.045 provides a 0.5% cushion under the 5% daily-loss limit common in
+proprietary evaluations. Signals emitted by a halted strategy are dropped
+entirely — the parked liquidation already flattens the book, so strategy
+exits would double-sell into a short.
 
 ### `stabilized_covariance(returns)`
 
