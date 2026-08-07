@@ -223,19 +223,26 @@ def plot_equity(equity: pd.Series, positions_history: pd.DataFrame | None = None
     )
     axes = np.atleast_1d(axes)
 
-    axes[0].plot(equity.index, equity.to_numpy(), lw=1.2)
+    axes[0].plot(equity.index, equity.to_numpy(), lw=1.6, color="#1f77b4")
     axes[0].set_ylabel("Equity")
     if log_scale:
         axes[0].set_yscale("log")
 
     dd = performance.drawdown_series(equity)
-    axes[1].fill_between(dd.index, dd.to_numpy(), 0, color=DOWN_COLOR, alpha=0.5)
+    axes[1].fill_between(dd.index, dd.to_numpy(), 0, color=DOWN_COLOR, alpha=0.55)
     axes[1].set_ylabel("Drawdown")
     axes[1].yaxis.set_major_formatter(
         FuncFormatter(lambda v, _p: f"{v:.0%}"))
 
     if n_panels == 3:
-        positions_history.plot(ax=axes[2], lw=0.9, legend=True)
+        # Use Axes.plot (not DataFrame.plot) so datetime units stay consistent
+        # with the equity/drawdown artists under sharex — pandas.plot can
+        # retarget the shared x converter and leave the equity line off-screen.
+        for col in positions_history.columns:
+            series = positions_history[col].dropna()
+            if series.empty:
+                continue
+            axes[2].plot(series.index, series.to_numpy(), lw=0.9, label=str(col))
         axes[2].axhline(0, color="black", lw=0.6)
         axes[2].set_ylabel("Qty held")
         axes[2].legend(loc="upper left", fontsize=8, framealpha=0.6)
