@@ -18,6 +18,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest"]
+yfinance = ["yfinance>=0.2.40"]
+ccxt = ["ccxt>=4"]
+data = ["yfinance>=0.2.40", "ccxt>=4"]
 
 [tool.setuptools.packages.find]
 include = ["quantester*"]

@@ -39,6 +39,8 @@ permutation testing, drawdown double bootstrap, O-U synthetic paths).
 pip install -e .[dev]
 pytest
 python examples/run_ma_cross.py         # backtest + tearsheet + truncation check
+<<<<<<< HEAD
+python examples/run_custom_strategy.py  # build a strategy from scratch (tutorial companion)
 python examples/run_monte_carlo.py      # Monte Carlo validation suite
 python examples/run_visualizations.py   # chart gallery + interactive viewer demo
 ```
@@ -73,6 +75,42 @@ viewer = interactive_view(bars, equity=portfolio.equity_curve,
                           trades=portfolio.trades)
 viewer.show()   # interactive backend: scroll/drag/keys
 ```
+
+## Market data providers
+
+All feeds share one streaming implementation, so the temporal firewall and
+availability-mask semantics are identical regardless of source:
+
+- `HistoricCSVDataHandler` — local `datetime,open,high,low,close,volume` CSVs.
+- `YFinanceDataHandler` — free Yahoo Finance OHLCV
+  (`pip install "quantester[yfinance]"`).
+- `CCXTDataHandler` — free OHLCV from 100+ crypto exchanges via ccxt
+  (`pip install "quantester[ccxt]"`, or `quantester[data]` for both).
+
+```bash
+python examples/run_market_data.py   # live-data backtest via yfinance + ccxt
+```
+
+## Documentation
+
+Full documentation lives in [`docs/`](docs/README.md):
+
+- [Getting started](docs/getting-started.md) — install, examples, tests
+- [Architecture & core concepts](docs/architecture.md) — the event lifecycle
+  and the temporal firewall
+- [Creating a strategy & backtesting it](docs/tutorials/creating-a-strategy.md) —
+  beginner-friendly step-by-step tutorial
+- [Validation workflow](docs/tutorials/validation-workflow.md) — the five
+  anti-overfitting gates
+- Module references for [data](docs/modules/data.md),
+  [strategy](docs/modules/strategy.md),
+  [portfolio](docs/modules/portfolio.md),
+  [execution](docs/modules/execution.md),
+  [analytics](docs/modules/analytics.md),
+  [validation](docs/modules/validation.md),
+  [Monte Carlo](docs/modules/montecarlo.md) and
+  [utilities](docs/modules/utils.md), plus a
+  [glossary](docs/glossary.md) and [FAQ](docs/faq.md)
 
 ## Source verification status
 
