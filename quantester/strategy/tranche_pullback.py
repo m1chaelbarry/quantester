@@ -18,10 +18,14 @@ Mathematical model (all levels in price terms, computed from closes):
   fraction on SignalEvent.strength with limit_price=T_k; the portfolio sizes
   the target AT the limit price, so wire the PortfolioManager with
   PercentEquitySizer(1.0) for exact spec mapping (pct scales total deployment).
-- Latching state machine: on the Flat -> Active transition the current P_peak
-  and ATR_14 are locked; the locked levels govern all tranche entries, the
-  exit and the stop until the position is completely closed. Levels never
-  drift while active.
+- Latching state machine: while no tranche is filled the ladder RE-ANCHORS
+  every bar to the current peak/ATR (cancel + replace), so the system always
+  buys a dip from the current peak rather than a stale one. The moment the
+  first tranche fills, the live levels FREEZE: the latched P_peak and ATR_14
+  govern the remaining tranche entries, the exit and the stop until the
+  position is completely closed (the spec's Flat -> Active transition is read
+  as flat -> position-open; a ladder that never fills must refresh, otherwise
+  a runaway market strands the capital at a dead anchor forever).
 - Mean-reversion exit: once any tranche is filled, close all tranches (market,
   next bar's open) when close_t >= SMA_5(t).
 - Hard stop: once any tranche is filled, close all tranches when
@@ -31,9 +35,11 @@ Mathematical model (all levels in price terms, computed from closes):
 
 Execution mechanics under the temporal firewall (delay=1):
 
-- At latch (close of bar T) three LONG signals carrying limit prices become
-  resting LIMIT orders eligible from bar T+1; the execution ledger fills
-  tranche k when a later bar's low touches T_k (min(open, T_k) on gaps).
+- At placement (close of bar T) three LONG signals carrying limit prices
+  become resting LIMIT orders eligible from bar T+1; the execution ledger
+  fills tranche k when a later bar's low touches T_k (min(open, T_k) on
+  gaps). While unfilled the ladder is canceled and re-anchored at each
+  close; the first fill freezes the levels.
 - The strategy mirrors the ledger's fill condition (bar low <= T_k) at each
   close to track which tranches are live; the portfolio holds actual sizes.
 - Exits emit EXIT with cancel_orders=True: the portfolio flattens the
@@ -111,8 +117,14 @@ class TranchePullbackStrategy(Strategy):
 
     # ------------------------------------------------------------- state I/O
 
-    def _latch(self, timestamp, peak: float, atr_value: float, events_queue):
-        """Flat -> Active: lock peak/ATR and rest the three tranche limits."""
+    def _place_ladder(self, timestamp, peak: float, atr_value: float,
+                      events_queue, cancel_first: bool = False):
+        """(Re)anchor the ladder at the current peak/ATR and rest the tranche
+        limits. While hunting (no fills yet) this runs every bar; the freeze
+        happens at the first fill. `cancel_first` purges the previously
+        resting ladder before replacing it — the cancel rides on the FIRST
+        emitted signal only, since each cancel would otherwise purge the
+        replacement orders from the signals drained just before it."""
         self._peak = peak
         self._atr = atr_value
         self._thresholds = [
@@ -123,12 +135,21 @@ class TranchePullbackStrategy(Strategy):
         self._filled = [False] * len(self.tranche_fractions)
         self._latched_at = timestamp
         self._state = ACTIVE
+        pending_cancel = cancel_first
         for fraction, threshold in zip(self.tranche_fractions, self._thresholds):
             if threshold <= 0:
                 continue  # degenerate volatility spike: skip untradeable level
             events_queue.put(
                 SignalEvent(timestamp, self.symbol, LONG, strength=fraction,
-                            delay=self.delay, limit_price=threshold)
+                            delay=self.delay, limit_price=threshold,
+                            cancel_orders=pending_cancel)
+            )
+            pending_cancel = False
+        if pending_cancel:
+            # Every threshold was degenerate: still purge the stale ladder.
+            events_queue.put(
+                SignalEvent(timestamp, self.symbol, EXIT, delay=self.delay,
+                            cancel_orders=True)
             )
 
     def _reset(self):
@@ -178,17 +199,32 @@ class TranchePullbackStrategy(Strategy):
 
         if self._state == FLAT:
             if close_t > sma_regime:
-                self._latch(event.timestamp, peak, atr_t, events_queue)
+                self._place_ladder(event.timestamp, peak, atr_t, events_queue)
             return
 
-        # ACTIVE: manage the latched ladder.
+        # ACTIVE: mirror the ledger's fills against the levels that rested
+        # during this bar (placed earlier, live from the next bar onward).
         self._mark_fills(event.timestamp, float(bar["low"]))
-        if not any(self._filled):
-            return  # ladder resting, no active tranches to manage yet
-        if close_t <= self._stop:
-            self._emit_exit(event, events_queue)  # hard stop: close <= latched stop
-        elif close_t >= sma_exit:
-            self._emit_exit(event, events_queue)  # mean reversion to SMA_5
+
+        if any(self._filled):
+            # Frozen: latched levels govern the remaining tranches, the stop
+            # and the exit until the position is completely closed.
+            if close_t <= self._stop:
+                self._emit_exit(event, events_queue)  # hard stop
+            elif close_t >= sma_exit:
+                self._emit_exit(event, events_queue)  # mean reversion to SMA_5
+            return
+
+        # Hunting: nothing filled yet, so the ladder re-anchors. The regime
+        # filter applies to entries, and a resting limit IS a latent entry:
+        # losing the bull regime pulls the ladder; keeping it refreshes the
+        # anchor to the current peak/ATR.
+        if close_t <= sma_regime:
+            self._emit_exit(event, events_queue)  # flat: pure book purge
+            self._reset()
+        else:
+            self._place_ladder(event.timestamp, peak, atr_t, events_queue,
+                               cancel_first=True)
 
     def _emit_exit(self, event, events_queue):
         events_queue.put(

@@ -147,6 +147,45 @@ def test_close_based_stop_flattens_position():
     assert len(portfolio.trades) == 1 and portfolio.trades[0]["pnl"] < 0
 
 
+def test_unfilled_ladder_reanchors_until_first_fill():
+    """While nothing is filled, the anchor must refresh to the current
+    peak/ATR every bar (cancel + replace) instead of pinning to the first
+    latch — a runaway market must not strand the ladder at a stale peak."""
+    bars = _ramp()  # bullish from bar 199 onward, zero-range: no dip, no fill
+    bars += [(100.0 + 0.1 * i, 100.0 + 0.1 * i, 100.0 + 0.1 * i,
+              100.0 + 0.1 * i) for i in range(1, 31)]  # slow grind to 103
+    strategy, portfolio = _run(bars)
+    assert portfolio.fills == []  # never dipped 1.5x ATR below the peak
+    assert strategy._state == "active"
+    # Anchor tracked the market to the very last bar (not the first latch).
+    last20 = [b[3] for b in bars[-20:]]
+    assert strategy._peak == pytest.approx(max(last20))
+    assert strategy._latched_at == _frame(bars).index[-1]
+
+
+def test_regime_loss_purges_unfilled_ladder():
+    """A resting (unfilled) ladder is a latent entry: losing the bull regime
+    pulls it. Contrast run proves the same ladder fills when bullish."""
+    # Upside-range bars: ATR lifts toward ~7 while the low pins at 99.99,
+    # never touching the ladder (T1 sinks from ~99.92 toward ~90).
+    wide = [(100.0, 107.0, 99.99, 100.0)] * 40
+    # Bearish close with a shallow low: above T1 (~90), so nothing fills
+    # at the open, then the close below SMA200 purges the ladder.
+    purge_bar = [(100.0, 100.5, 95.5, 96.0)]
+    deep_dip = [(95.5, 95.6, 80.0, 85.0)]     # would take out every tranche
+    tail = [(85.0, 85.0, 85.0, 85.0)] * 3
+
+    bars_purge = _ramp() + wide + purge_bar + deep_dip + tail
+    strategy, portfolio = _run(bars_purge)
+    assert portfolio.fills == []               # purged before the deep bar
+    assert strategy._state == "flat"           # regime lost: back to flat
+
+    bullish_bar = [(100.0, 100.5, 95.5, 97.5)]  # close stays above SMA200
+    bars_live = _ramp() + wide + bullish_bar + deep_dip + tail
+    _, portfolio_live = _run(bars_live)
+    assert len(portfolio_live.fills) > 0       # same ladder, still armed: fills
+
+
 def test_exit_purges_unfilled_tranche_limits():
     bars = _ramp()
     bars += [
