@@ -30,20 +30,29 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from scipy.stats import kurtosis as skurt
+from scipy.stats import skew as sskew
+
+from quantester.analytics.dsr import dsr_from_registry
 from quantester.analytics.performance import (
     annualized_sharpe,
     calmar_ratio,
+    carver_cost_drag_sr,
     max_drawdown,
+    speed_limit_warning,
 )
 from quantester.analytics.tearsheet import generate_tearsheet
+from quantester.analytics.trials_registry import TrialsRegistry
 from quantester.data.csv_handler import HistoricCSVDataHandler
 from quantester.engine import BacktestEngine
 from quantester.execution.costs import ConservativeFrictionCostModel, CostModel
 from quantester.execution.simulator import SimulatedExecutionHandler
 from quantester.portfolio.portfolio import PercentEquitySizer, PortfolioManager
 from quantester.portfolio.risk import DailyDrawdownBreaker
+from quantester.portfolio.sizing import optimal_f
 from quantester.strategy.examples import BuyAndHoldStrategy
 from quantester.strategy.tranche_pullback import TranchePullbackStrategy
+from quantester.validation.pbo import pbo_cscv
 from quantester.validation.truncation import run_truncation_test
 
 DATA_DIR = Path("examples/data")
@@ -75,6 +84,7 @@ def load_or_fetch() -> pd.DataFrame:
 
 def run(df: pd.DataFrame, cost_model, breaker: bool = True,
         truncate_last: int | None = None, buy_and_hold: bool = False,
+        cash_yield_rate: float = 0.0,
         **strategy_overrides) -> PortfolioManager:
     if truncate_last:
         df = df.iloc[:-truncate_last]
@@ -86,6 +96,7 @@ def run(df: pd.DataFrame, cost_model, breaker: bool = True,
     portfolio = PortfolioManager(
         handler, INITIAL_CAPITAL, sizer=PercentEquitySizer(1.0),
         drawdown_breaker=DailyDrawdownBreaker(0.045) if breaker else None,
+        cash_yield_rate=cash_yield_rate,  # Kaufman: half the 3M T-bill rate
     )
     engine = BacktestEngine(handler, strategy, portfolio,
                             SimulatedExecutionHandler(cost_model))
@@ -177,10 +188,83 @@ def main():
               f"{'beat' if r['beat'] else ''}")
     print(f"  years beating B&H: {int(table['beat'].sum())}/{len(table)}")
 
-    print("\n-- ATR-spacing sensitivity (informational; NOT a selection sweep) --")
-    for spacing in (0.75, 1.0, 1.25, 1.5):
+    # Idle-cash yield (notebook-verified: Kaufman accrues half the 3M T-bill
+    # rate on flat capital; Carver requires including rf on undeployed cash).
+    # 2.0% T-bill assumption -> 1.0% effective on idle cash. Assumption, not data.
+    yielded = run(df, FRICTION, breaker=True, cash_yield_rate=0.02)
+    print("\n-- idle-cash yield variant (Kaufman half of assumed 2% T-bill) --")
+    report(metrics(yielded.equity_curve, yielded, "strategy net + cash yield"))
+
+    # Carver cost audit (notebook-verified): standardized round-trip cost
+    # 2C/(16*ICV), turnover drag, and the speed limits (0.13 SR = 1/3 of the
+    # 0.40 staunch-systems SR; 0.08 SR stricter repo gate).
+    print("\n-- Carver cost audit --")
+    daily_sigma = float(df["close"].pct_change().std())
+    block_value = float(df["close"].mean())          # 1-BTC block, mean price
+    icv = daily_sigma * block_value                  # instrument currency vol
+    c_one_way = block_value * FRICTION.friction_multiplier * (
+        FRICTION.spread_pct / 2 + FRICTION.fee_rate
+    )
+    standardized = 2 * c_one_way / (16 * icv)        # SR units per round-trip
+    n_years = len(df) / PERIODS
+    turnover = len(portfolio.trades) / n_years       # round-trips per year
+    drag = carver_cost_drag_sr(turnover, standardized)
+    print(f"  daily sigma {daily_sigma:.2%}  ICV/BTC {icv:,.0f}  "
+          f"standardized cost {standardized:.5f} SR/round-trip")
+    print(f"  turnover {turnover:.1f} round-trips/yr -> cost drag "
+          f"{drag:.3f} SR/yr (limits: 0.08 strict, 0.13 = 1/3 of 0.40 SR)")
+    warning = speed_limit_warning(drag)
+    print(f"  speed limit (0.08): {'EXCEEDED — ' + warning if warning else 'within'}"
+          f" | one-third rule (0.13): {'EXCEEDED' if drag > 0.13 else 'within'}")
+
+    # Vince optimal-f on the 1-unit P&L stream (notebook-verified formulas in
+    # portfolio/sizing.py; worst loss gap-stressed 1.5x per Vince's caveat).
+    print("\n-- Vince optimal-f audit (1-unit basis) --")
+    unit_pnl = np.array([t["pnl"] / t["qty"] for t in portfolio.trades])
+    worst = float(unit_pnl.min())
+    f_star = optimal_f(unit_pnl)                     # gap-stressed by default
+    f_plain = optimal_f(unit_pnl, gap_stress=1.0)    # unstressed, for contrast
+    stressed_worst = worst * 1.5
+    q_dollars = abs(stressed_worst) / f_star if f_star > 0 else np.inf
+    k_units = INITIAL_CAPITAL / q_dollars if np.isfinite(q_dollars) else 0.0
+    print(f"  worst 1-BTC loss {worst:,.0f} (gap-stressed {stressed_worst:,.0f})")
+    print(f"  f* = {f_star:.3f} (unstressed {f_plain:.3f})  ->  Q = "
+          f"{q_dollars:,.0f} USD per BTC  ->  K = {k_units:.3f} BTC on "
+          f"{INITIAL_CAPITAL:,.0f} equity")
+    cap_frac = k_units * block_value / INITIAL_CAPITAL
+    print(f"  implied notional cap ~{cap_frac:.0%} of equity at mean price; "
+          f"the spec deploys up to 100% (25/35/40 stacking)")
+
+    print("\n-- spacing grid + overfitting audits (CSCV/PBO gate, DSR) --")
+    spacings = (0.75, 1.0, 1.25, 1.5)
+    registry = TrialsRegistry()
+    curves = {}
+    for spacing in spacings:
         p = run(df, FRICTION, breaker=True, atr_spacing=spacing)
-        report(metrics(p.equity_curve, p, f"spacing {spacing}x ATR"))
+        eq_s = p.equity_curve
+        curves[spacing] = eq_s
+        rets = eq_s.pct_change().dropna()
+        sr_daily = float(rets.mean() / rets.std()) if rets.std() > 0 else 0.0
+        registry.log_trial(
+            params={"atr_spacing": spacing}, sharpe=sr_daily,
+            mean=float(rets.mean()), std=float(rets.std()),
+            skew=float(sskew(rets)), kurt=float(skurt(rets, fisher=False)),
+            n_obs=len(rets), run_id="spacing_grid",
+        )
+        report(metrics(eq_s, p, f"spacing {spacing}x ATR"))
+    pnl_grid = pd.DataFrame(
+        {s: curves[s].diff() for s in spacings}
+    ).dropna()
+    pbo = pbo_cscv(pnl_grid, n_blocks=16)
+    best = registry.best_trial()
+    dsr = dsr_from_registry(registry, sr_hat=best["sharpe"], n_obs=best["n_obs"],
+                            skew=best["skew"], kurtosis=best["kurt"])
+    print(f"  PBO over the {len(spacings)}-point spacing grid: {pbo.pbo:.3f} "
+          f"({pbo.n_combinations} CSCV combos) — gate < 0.10: "
+          f"{'PASS' if pbo.passes_gate else 'FAIL (overfitting likely)'}")
+    print(f"  DSR (N={registry.n_trials()} trials, daily SR units): {dsr:.3f} "
+          f"— probability the best config has true skill after selection bias")
+    registry.close()
 
     print("\n-- leak check --")
     result = run_truncation_test(

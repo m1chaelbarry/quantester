@@ -139,11 +139,11 @@ def main():
     print(result)
 
     # Scenario 2: engineered black swan to exercise the 4.5% daily breaker.
-    # On DAILY bars the close-based strategy stop and the breaker trip on the
-    # same close here, so both books unwind at the same next open -- the
-    # breaker's distinct value is intraday granularity on finer bars (it marks
-    # equity against the daily opening balance bar-by-bar) and portfolio-level
-    # enforcement + signal suspension, which the prints below demonstrate.
+    # Note the layering: the strategy's own Kaufman-rule stop (low trigger,
+    # close fill) exits at the crash bar's close, while the account-level
+    # breaker liquidates at the NEXT open and suspends signals — slightly
+    # worse fill here, but the breaker is the backstop that still fires when
+    # a strategy has no stop, is halted, or the loss comes from other books.
     crash = make_crash_scenario()
     protected = run_backtest(crash, breaker=True)
     unprotected = run_backtest(crash, breaker=False)
