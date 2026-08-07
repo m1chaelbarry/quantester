@@ -9,6 +9,11 @@
   bar's low reaches the limit, at min(open, limit) — a gap down through the
   limit earns price improvement at the open, never a worse price. Sell limits
   are symmetric (high reached, fills at max(open, limit)).
+- Market-on-close orders fill at the close print of their earliest_fill_time
+  bar ONLY, and never park in the ledger: missing the close auction expires
+  the order (live MOC semantics). The exact-timestamp gate confines the fill
+  to the close-phase drain of its own bar, so a MOC fill can never use a
+  close print that was not yet known when the decision was made.
 - Cancel orders purge every RESTING order (limit/stop) for the symbol from
   the ledger; parked market orders are committed executions in flight and are
   never purged (a cancel must not annul a liquidation already on its way).
@@ -24,6 +29,7 @@ from ..events import (
     CANCEL_ORDER,
     LIMIT_ORDER,
     MARKET_ORDER,
+    MOC_ORDER,
     OPEN,
     STOP_ORDER,
     FillEvent,
@@ -55,6 +61,10 @@ class SimulatedExecutionHandler(ExecutionHandler):
         self._pending = still_pending
 
     def execute_order(self, order, events_queue):
+        if order.order_type == MOC_ORDER:
+            # MOC never parks: fill on its own bar's close or expire.
+            self._try_fill(order, events_queue)
+            return
         if order.order_type == CANCEL_ORDER:
             # Synchronous book purge: resting orders (limit/stop) for the
             # symbol are pulled immediately, regardless of phase or
@@ -89,6 +99,10 @@ class SimulatedExecutionHandler(ExecutionHandler):
             reference = self._limit_reference(order, bar)
             if reference is None:
                 return False  # limit not touched this bar; keeps resting
+        elif order.order_type == MOC_ORDER:
+            if order.earliest_fill_time != self._timestamp:
+                return False  # stale MOC: its close auction has passed
+            reference = float(bar["close"])
         else:
             raise ValueError(f"Unsupported order type: {order.order_type}")
 

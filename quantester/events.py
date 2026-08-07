@@ -29,6 +29,7 @@ SELL = "SELL"
 MARKET_ORDER = "MARKET"
 STOP_ORDER = "STOP"
 LIMIT_ORDER = "LIMIT"
+MOC_ORDER = "MOC"  # market-on-close: fill at the bar's close print, same bar only
 CANCEL_ORDER = "CANCEL"  # purge resting limit/stop orders for the symbol
 
 OPEN = "open"
@@ -67,6 +68,10 @@ class SignalEvent(Event):
     `delay` (bars until execution) and `fill_at` (reference price) implement the
     temporal firewall contract: delay=1 fills at the next bar's open; delay=0 with
     fill_at='open' fills at the current bar's open under the intra-bar guard.
+    fill_at='close' requests a market-on-close fill at the CURRENT bar's close
+    (close-phase delay>=1 strategies only) — the live-legitimate MOC pattern for
+    decisions made on intra-bar information, e.g. Kaufman's close-execution
+    stop rule.
     """
 
     symbol: str
