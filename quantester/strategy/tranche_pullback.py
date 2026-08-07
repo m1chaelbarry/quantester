@@ -1,9 +1,16 @@
 """Tranche pullback strategy: volatility-spaced dip-buying ladder.
 
-Verification status: not covered by the notebook — implemented from the user's
-strategy specification (three-tranche pullback ladder with latching state
-machine, regime filter, SMA exit and ATR stop). ATR uses Wilder's definition
-(shared with `visualization.indicators.atr`, Wilder 1978).
+Verification status:
+- Notebook-verified: Wilder ATR (via `visualization.indicators.atr`); the
+  Kaufman close-execution stop rule (intra-bar trigger, close fill, TSM
+  ch. 23) including the must-reenter-when-trend-intact behavior (the machine
+  re-arms after any exit whenever the regime is bullish); Ehlers' wide
+  catastrophic-stop-only warning and Chan's mean-reversion stop-loss fallacy
+  (both motivate the 5x ATR width and keep the SMA_5 exit stop-free).
+- Not covered by the notebook: the tranche grid, fractions, regime filter and
+  re-anchor-until-first-fill semantics — implemented from the user's
+  specification; the re-anchoring variant was forced by real-data testing
+  (a one-shot latch traded once in 13 years on 2013-2026 BTC).
 
 Mathematical model (all levels in price terms, computed from closes):
 
@@ -28,10 +35,17 @@ Mathematical model (all levels in price terms, computed from closes):
   a runaway market strands the capital at a dead anchor forever).
 - Mean-reversion exit: once any tranche is filled, close all tranches (market,
   next bar's open) when close_t >= SMA_5(t).
-- Hard stop: once any tranche is filled, close all tranches when
-  close_t <= P_peak - 5.0 * ATR_14. The trigger is close-based (per the spec's
-  "Instant Unwind" wording) and fills at the next bar's open — gap risk is
-  honored, the stop price is never guaranteed (Cross-Ref-2 section 4.2).
+- Hard stop at P_peak - 5.0 * ATR_14, executed per Kaufman's close-execution
+  rule (notebook-verified, Trading Systems and Methods ch. 23: "use the high
+  and low to trigger the stop, but actually exit on the close — that way you
+  take advantage of market noise to improve the exit price"): the bar's LOW
+  touching the latched stop triggers a market-on-close exit at that bar's
+  close. The stop price is never the fill price — gap risk is honored
+  (Cross-Ref-2 section 4.2). The 5x ATR width follows Ehlers' warning that
+  tight integral stops decimate robustness: this layer is catastrophic-only,
+  and Chan's stop-loss fallacy (mean-reversion stops force exits at maximum
+  adverse excursion) is the reason the SMA_5 reversion exit carries the
+  normal risk workload.
 
 Execution mechanics under the temporal firewall (delay=1):
 
@@ -69,7 +83,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..events import EXIT, LONG, SignalEvent
+from ..events import EXIT, LONG, OPEN, SignalEvent
 from ..visualization.indicators import atr as wilder_atr
 from .base import Strategy
 
@@ -209,8 +223,10 @@ class TranchePullbackStrategy(Strategy):
         if any(self._filled):
             # Frozen: latched levels govern the remaining tranches, the stop
             # and the exit until the position is completely closed.
-            if close_t <= self._stop:
-                self._emit_exit(event, events_queue)  # hard stop
+            if float(bar["low"]) <= self._stop:
+                # Kaufman close-execution rule: intra-bar low triggers, exit
+                # fills at THIS bar's close (market-on-close).
+                self._emit_exit(event, events_queue, fill_at="close")
             elif close_t >= sma_exit:
                 self._emit_exit(event, events_queue)  # mean reversion to SMA_5
             return
@@ -226,10 +242,10 @@ class TranchePullbackStrategy(Strategy):
             self._place_ladder(event.timestamp, peak, atr_t, events_queue,
                                cancel_first=True)
 
-    def _emit_exit(self, event, events_queue):
+    def _emit_exit(self, event, events_queue, fill_at=OPEN):
         events_queue.put(
             SignalEvent(event.timestamp, self.symbol, EXIT, strength=1.0,
-                        delay=self.delay, cancel_orders=True)
+                        delay=self.delay, fill_at=fill_at, cancel_orders=True)
         )
         self._state = EXITING
 
