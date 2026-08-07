@@ -18,6 +18,7 @@ from quantester.events import (
 )
 from quantester.portfolio.portfolio import (
     FixedUnitSizer,
+    FractionalRiskSizer,
     PercentEquitySizer,
     PortfolioManager,
 )
@@ -73,12 +74,15 @@ def test_sizers():
     class _Signal:
         signal_type = "LONG"
         strength = 0.5
+        stop_distance = 10.0
 
     assert FixedUnitSizer(200)(_Signal(), None, 10.0) == 100.0
     portfolio = _portfolio()
     portfolio.last_prices["AAA"] = 10.0
     target = PercentEquitySizer(0.5)(_Signal(), portfolio, 10.0)
     assert target == pytest.approx(100_000 * 0.5 * 0.5 / 10.0)
+    risk_target = FractionalRiskSizer(0.02)(_Signal(), portfolio, 10.0)
+    assert risk_target == pytest.approx(100_000 * 0.02 / 10.0)
 
 
 def test_kelly():

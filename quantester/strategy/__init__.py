@@ -1,4 +1,5 @@
 from .base import Strategy
+from .donchian_breakout import DonchianBreakoutStrategy
 from .examples import BuyAndHoldStrategy, MovingAverageCrossStrategy
 from .pairs_trading import PairsTradingStrategy
 from .tranche_pullback import TranchePullbackStrategy
@@ -9,4 +10,5 @@ __all__ = [
     "MovingAverageCrossStrategy",
     "PairsTradingStrategy",
     "TranchePullbackStrategy",
+    "DonchianBreakoutStrategy",
 ]

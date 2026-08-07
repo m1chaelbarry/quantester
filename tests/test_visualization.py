@@ -87,6 +87,19 @@ def test_atr_non_negative_and_wilder(ohlc):
     pd.testing.assert_series_equal(a, expected)
 
 
+def test_adx_and_donchian(ohlc):
+    a = indicators.adx(ohlc["high"], ohlc["low"], ohlc["close"], window=14)
+    assert set(a.columns) == {"adx", "plus_di", "minus_di"}
+    assert (a["adx"].dropna() >= 0).all()
+    assert (a["adx"].dropna() <= 100).all()
+    channel = indicators.donchian(ohlc["high"], ohlc["low"], window=20, shift=1)
+    assert channel["upper"].iloc[40] == pytest.approx(
+        ohlc["high"].iloc[20:40].max())
+    assert channel["lower"].iloc[40] == pytest.approx(
+        ohlc["low"].iloc[20:40].min())
+    assert (channel["upper"].dropna() >= channel["lower"].dropna()).all()
+
+
 # ------------------------------------------------------------- static charts
 
 

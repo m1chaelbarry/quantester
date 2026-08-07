@@ -55,6 +55,33 @@ class PercentEquitySizer:
         return sign * dollar_target / ref_price
 
 
+class FractionalRiskSizer:
+    """Vince-style fractional bet: risk a fixed equity fraction to the stop.
+
+    Target quantity q = ± (equity × risk_fraction) / stop_distance, where
+    ``signal.stop_distance`` is the protective stop gap in price units
+    (e.g. 2 × ATR_14). A full stop-out then loses approximately
+    ``risk_fraction`` of account equity before friction.
+    """
+
+    def __init__(self, risk_fraction: float = 0.02):
+        if not 0.0 < risk_fraction <= 1.0:
+            raise ValueError("risk_fraction must lie in (0, 1]")
+        self.risk_fraction = float(risk_fraction)
+
+    def __call__(self, signal, portfolio, ref_price: float) -> float:
+        if signal.signal_type == EXIT or ref_price <= 0:
+            return 0.0
+        distance = getattr(signal, "stop_distance", None)
+        if distance is None or float(distance) <= 0.0:
+            raise ValueError(
+                "FractionalRiskSizer requires signal.stop_distance > 0 "
+                "(price units from entry to the protective stop)."
+            )
+        sign = 1.0 if signal.signal_type == LONG else -1.0
+        return sign * (portfolio.equity * self.risk_fraction) / float(distance)
+
+
 class PortfolioManager(Portfolio):
     def __init__(self, data_handler, initial_capital: float = 100_000.0,
                  sizer=None, margin_monitor: MarginMonitor | None = None,

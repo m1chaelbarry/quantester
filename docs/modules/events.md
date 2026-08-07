@@ -52,6 +52,7 @@ Strategy output: a directional intention for one symbol.
 | `fill_at` | `str` | `"open"` | Reference price the portfolio uses for sizing. `"close"` requests a market-on-close fill at the **current** bar's close (close-phase `delay >= 1` strategies only). |
 | `limit_price` | `float \| None` | `None` | When set, the portfolio sizes the target **at this price** and rests a `LIMIT` order (tranche ladders priced off latched levels). |
 | `cancel_orders` | `bool` | `False` | Emit a `CANCEL` order first (purge the symbol's resting book). Set on exits by strategies that rest orders, so unfilled levels cannot re-enter after an exit. |
+| `stop_distance` | `float \| None` | `None` | Price-unit gap from entry to the protective stop. Consumed by `FractionalRiskSizer` as `q = equity × risk_fraction / stop_distance`. |
 
 ## `OrderEvent`
 

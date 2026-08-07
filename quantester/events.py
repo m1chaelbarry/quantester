@@ -81,9 +81,11 @@ class SignalEvent(Event):
     fill_at: str = OPEN
     limit_price: Optional[float] = None
     cancel_orders: bool = False
+    stop_distance: Optional[float] = None
 
     def __init__(self, timestamp, symbol, signal_type, strength=1.0, delay=1,
-                 fill_at=OPEN, limit_price=None, cancel_orders=False):
+                 fill_at=OPEN, limit_price=None, cancel_orders=False,
+                 stop_distance=None):
         super().__init__(SIGNAL, timestamp)
         self.symbol = symbol
         self.signal_type = signal_type
@@ -96,6 +98,9 @@ class SignalEvent(Event):
         # Strategies that rest orders (limit ladders) set this on EXIT to purge
         # the book: unfilled resting levels must not survive the exit.
         self.cancel_orders = cancel_orders
+        # Price-unit distance to the protective stop; consumed by
+        # FractionalRiskSizer as q = equity * risk_fraction / stop_distance.
+        self.stop_distance = stop_distance
 
 
 @dataclass

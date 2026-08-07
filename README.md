@@ -44,6 +44,8 @@ python examples/run_monte_carlo.py      # Monte Carlo validation suite
 python examples/run_visualizations.py   # chart gallery + interactive viewer demo
 python examples/run_tranche_pullback.py        # BTC tranche pullback ladder (synthetic)
 python examples/run_tranche_pullback_ccxt.py   # ... on real CCXT BTC data + audits
+python examples/run_donchian_breakout.py       # hourly Donchian+ADX breakout (synthetic)
+python examples/run_donchian_breakout_ccxt.py  # ... on real CCXT BTC 1h data
 python examples/run_parameter_study_ccxt.py    # parameter grid + PBO/DSR + bootstrap MC
 python examples/run_parameter_study_intraday_ccxt.py --tf 4h  # same on 4h/1h
 ```
@@ -64,7 +66,8 @@ equity, fills, trades) — display tooling only, never inside the event loop.
   hovering shows an OHLCV crosshair readout. Works on any interactive backend
   (Qt/Tk/notebook); headless runs save snapshots via `viewer.save(path)`.
 - **Indicator helpers** (`visualization.indicators`): SMA, EMA, RSI, MACD,
-  Bollinger Bands, ATR, rolling volatility for overlay/subpanel series.
+  Bollinger Bands, ATR, ADX, Donchian channels, rolling volatility for
+  overlay/subpanel series.
 
 ```python
 from quantester.visualization import indicators, interactive_view, plot_candles

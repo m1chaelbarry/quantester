@@ -1,9 +1,10 @@
 """Technical indicators for charting and strategy research.
 
 Verification status: not covered by the notebook — standard TA definitions
-implemented from canonical sources: Wilder (1978) for RSI and ATR (Wilder
-smoothing, alpha = 1/window), Appel (1979) for MACD, Bollinger for Bollinger
-Bands (population standard deviation, ddof=0).
+implemented from canonical sources: Wilder (1978) for RSI, ATR, and ADX
+(Wilder smoothing, alpha = 1/window), Appel (1979) for MACD, Bollinger for
+Bollinger Bands (population standard deviation, ddof=0), Donchian for channel
+highs/lows.
 
 These helpers are pure functions on price series; they are research/display
 tooling. Strategies must still compute their own signals through the
@@ -73,6 +74,59 @@ def atr(high: pd.Series, low: pd.Series, close: pd.Series,
         axis=1,
     ).max(axis=1)
     return true_range.ewm(alpha=1.0 / window, min_periods=window, adjust=False).mean()
+
+
+def adx(high: pd.Series, low: pd.Series, close: pd.Series,
+        window: int = 14) -> pd.DataFrame:
+    """Wilder's Average Directional Index with +DI / -DI.
+
+    Returns a DataFrame with columns ``adx``, ``plus_di``, ``minus_di``.
+    Directional movement and true range are Wilder-smoothed (alpha = 1/window);
+    DX is then Wilder-smoothed into ADX.
+    """
+    up_move = high.diff()
+    down_move = -low.diff()
+    plus_dm = up_move.where((up_move > down_move) & (up_move > 0.0), 0.0)
+    minus_dm = down_move.where((down_move > up_move) & (down_move > 0.0), 0.0)
+    prev_close = close.shift(1)
+    true_range = pd.concat(
+        [high - low, (high - prev_close).abs(), (low - prev_close).abs()],
+        axis=1,
+    ).max(axis=1)
+    alpha = 1.0 / window
+    atr_s = true_range.ewm(alpha=alpha, min_periods=window, adjust=False).mean()
+    plus_di = 100.0 * (
+        plus_dm.ewm(alpha=alpha, min_periods=window, adjust=False).mean() / atr_s
+    )
+    minus_di = 100.0 * (
+        minus_dm.ewm(alpha=alpha, min_periods=window, adjust=False).mean() / atr_s
+    )
+    di_sum = plus_di + minus_di
+    dx = (100.0 * (plus_di - minus_di).abs() / di_sum).where(di_sum > 0.0)
+    adx_line = dx.ewm(alpha=alpha, min_periods=window, adjust=False).mean()
+    return pd.DataFrame(
+        {"adx": adx_line, "plus_di": plus_di, "minus_di": minus_di},
+        index=close.index,
+    )
+
+
+def donchian(high: pd.Series, low: pd.Series, window: int = 20,
+             shift: int = 1) -> pd.DataFrame:
+    """Donchian channel from prior ``window`` bars (default excludes the current).
+
+    ``shift=1`` yields B_up,t = max(High_{t-1..t-window}) and
+    B_down,t = min(Low_{t-1..t-window}), the breakout boundaries used by
+    delay-1 channel systems so the signal bar is not in its own channel.
+    """
+    prior_high = high.shift(shift)
+    prior_low = low.shift(shift)
+    return pd.DataFrame(
+        {
+            "upper": prior_high.rolling(window).max(),
+            "lower": prior_low.rolling(window).min(),
+        },
+        index=high.index,
+    )
 
 
 def rolling_volatility(close: pd.Series, window: int = 21,

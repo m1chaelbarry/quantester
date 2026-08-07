@@ -119,6 +119,47 @@ parameter study with PBO/DSR gating and bootstrap MC:
 `examples/run_parameter_study_intraday_ccxt.py --tf 4h|1h` (calendar-scaled
 intraday ports).
 
+## Donchian breakout (hourly BTC trend-following)
+
+`quantester/strategy/donchian_breakout.py`.
+
+### `DonchianBreakoutStrategy(data_handler, symbol, regime_window=200, entry_window=20, trail_window=10, exit_window=20, atr_window=14, adx_window=14, adx_threshold=25.0, stop_atr_mult=2.0, risk_fraction=0.02)`
+
+SMA-gated Donchian breakout with an ADX intensity filter (built for hourly
+BTC, but the windows are bar-counts so any timeframe works):
+
+- **Regime gate**: long only while `close > SMA(regime_window)`; short only
+  while `close < SMA(regime_window)`.
+- **Entry boundaries**: prior-`entry_window` Donchian channel
+  (`max(high_{t-1..t-N})` / `min(low_{t-1..t-N})`) — the signal bar is
+  excluded from its own channel.
+- **ADX filter**: new entries require `ADX(adx_window) > adx_threshold`.
+- **Delay-1**: signals at close T fill at open T+1.
+- **Sizing**: emits `SignalEvent.stop_distance = stop_atr_mult × ATR`; wire
+  `PortfolioManager(sizer=FractionalRiskSizer(risk_fraction))` so
+  `q = equity × risk_fraction / stop_distance` (2% equity to the 2×ATR stop
+  by default).
+- **Exits**: mean reversion when close crosses `SMA(exit_window)`; trailing
+  stop on the opposite 10-period Donchian boundary (close breach → next
+  open); protective floor at entry ∓ `stop_atr_mult × ATR` executed per
+  Kaufman's close-execution rule (intra-bar touch → this bar's close).
+- No vectorized twin — path-dependent protective latching; validate with
+  block-bootstrap rather than the fast-track.
+
+```python
+from quantester.strategy.donchian_breakout import DonchianBreakoutStrategy
+from quantester.portfolio.portfolio import FractionalRiskSizer, PortfolioManager
+from quantester.execution.costs import ConservativeFrictionCostModel
+
+portfolio = PortfolioManager(handler, 25_000.0, sizer=FractionalRiskSizer(0.02))
+engine = BacktestEngine(handler, DonchianBreakoutStrategy(handler, "BTC/USD"),
+                        portfolio,
+                        SimulatedExecutionHandler(ConservativeFrictionCostModel()))
+```
+
+Examples: `examples/run_donchian_breakout.py` (synthetic hourly) and
+`examples/run_donchian_breakout_ccxt.py` (real Bitstamp 1h).
+
 ## Meta-labeling
 
 `quantester/strategy/meta_labeling.py` — the AFML ch. 3 scaffold.
