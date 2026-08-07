@@ -165,6 +165,7 @@ class PortfolioManager(Portfolio):
                 "t0": lot["t0"],
                 "t1": fill.timestamp,
                 "qty": closed,
+                "direction": int(np.sign(lot["qty"])),  # +1 long, -1 short
                 "entry_price": lot["avg_price"],
                 "exit_price": fill.fill_price,
                 "pnl": pnl,

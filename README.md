@@ -38,8 +38,40 @@ permutation testing, drawdown double bootstrap, O-U synthetic paths).
 ```bash
 pip install -e .[dev]
 pytest
-python examples/run_ma_cross.py      # backtest + tearsheet + truncation check
-python examples/run_monte_carlo.py   # Monte Carlo validation suite
+python examples/run_ma_cross.py         # backtest + tearsheet + truncation check
+python examples/run_monte_carlo.py      # Monte Carlo validation suite
+python examples/run_visualizations.py   # chart gallery + interactive viewer demo
+```
+
+## Visualization
+
+`quantester/visualization` renders post-run artifacts (bars, indicators,
+equity, fills, trades) — display tooling only, never inside the event loop.
+
+- **Static charts**: candlesticks with indicator overlays/subpanels, fill and
+  round-trip markers (`plot_candles`); equity + drawdown + held quantities
+  (`plot_equity`); round-trip PnL breakdown (`plot_trade_analysis`); monthly
+  returns heatmap (`plot_monthly_returns`); rolling Sharpe/vol/drawdown
+  (`plot_rolling_metrics`); Monte Carlo percentile fan + terminal histogram
+  (`plot_path_distribution`).
+- **Interactive viewer** (`interactive_view`): a scrollable matplotlib chart —
+  mouse wheel zooms around the cursor, left-drag pans, arrow keys navigate,
+  hovering shows an OHLCV crosshair readout. Works on any interactive backend
+  (Qt/Tk/notebook); headless runs save snapshots via `viewer.save(path)`.
+- **Indicator helpers** (`visualization.indicators`): SMA, EMA, RSI, MACD,
+  Bollinger Bands, ATR, rolling volatility for overlay/subpanel series.
+
+```python
+from quantester.visualization import indicators, interactive_view, plot_candles
+
+plot_candles(bars, overlays={"SMA(10)": indicators.sma(bars["close"], 10)},
+             subpanels={"RSI(14)": indicators.rsi(bars["close"])},
+             trades=portfolio.trades, fills=portfolio.fills,
+             path="chart.png")
+
+viewer = interactive_view(bars, equity=portfolio.equity_curve,
+                          trades=portfolio.trades)
+viewer.show()   # interactive backend: scroll/drag/keys
 ```
 
 ## Source verification status
