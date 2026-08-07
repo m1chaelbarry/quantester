@@ -60,6 +60,11 @@ class DataHandler(ABC):
         """Timestamp n bars after `timestamp` on the master calendar (None past the end)."""
         ...
 
+    @abstractmethod
+    def bar_at(self, symbol: str, timestamp: pd.Timestamp):
+        """Execution-side lookup of a full bar at a timestamp (None if unavailable)."""
+        ...
+
     @property
     @abstractmethod
     def current_timestamp(self):
