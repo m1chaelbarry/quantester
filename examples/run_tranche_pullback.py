@@ -13,6 +13,11 @@ Safeguards demonstrated:
   5% prop-firm limit) liquidates everything, cancels the resting ladder, and
   suspends entries until the daily rollover.
 
+This synthetic GBM path is a PLUMBING demo (fills, latching, breaker,
+truncation check) — GBM has no mean-reversion edge, so churn pays only
+friction here. The real-data profitability evaluation lives in
+examples/run_tranche_pullback_ccxt.py.
+
 Run from the repo root:  python examples/run_tranche_pullback.py
 """
 
