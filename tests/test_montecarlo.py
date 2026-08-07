@@ -6,7 +6,7 @@ import pytest
 
 from quantester.data.csv_handler import HistoricCSVDataHandler
 from quantester.engine import BacktestEngine
-from quantester.execution.costs import CostModel
+from quantester.execution.costs import ConservativeFrictionCostModel, CostModel
 from quantester.execution.simulator import SimulatedExecutionHandler
 from quantester.montecarlo.diagnostics import autocorrelation_gate, ljung_box, runs_test
 from quantester.montecarlo.drawdown import (
@@ -143,3 +143,28 @@ def test_fast_track_engine_parity(ohlc):
     assert np.allclose(
         engine_equity.to_numpy(), fast.equity.to_numpy(), rtol=1e-9, atol=1e-6
     )
+
+
+def test_fast_track_engine_parity_price_aware_costs(ohlc):
+    """Parity must also hold for notional-fee cost models: the engine and the
+    fast-track both pass the fill reference price into commission()."""
+    costs = ConservativeFrictionCostModel(spread_pct=0.0002, fee_rate=0.0004)
+    units = 100
+
+    handler = HistoricCSVDataHandler({"AAA": ohlc})
+    strategy = MovingAverageCrossStrategy(handler, "AAA", fast=3, slow=8)
+    portfolio = PortfolioManager(handler, 100_000.0, sizer=FixedUnitSizer(units))
+    engine = BacktestEngine(handler, strategy, portfolio,
+                            SimulatedExecutionHandler(costs))
+    engine.run_backtest()
+
+    target = MovingAverageCrossStrategy(None, "AAA", fast=3, slow=8).vectorized_signals(
+        {"AAA": ohlc}
+    )["AAA"]
+    fast = fast_backtest(ohlc, target, costs, initial_capital=100_000.0, units=units)
+
+    engine_equity = portfolio.equity_curve.reindex(ohlc.index).ffill()
+    assert np.allclose(
+        engine_equity.to_numpy(), fast.equity.to_numpy(), rtol=1e-9, atol=1e-6
+    )
+    assert any(f.commission > 0 for f in portfolio.fills)  # fees really charged

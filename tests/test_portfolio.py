@@ -1,16 +1,27 @@
-"""Ledger accounting, sizing math, spectral risk, margin monitor."""
+"""Ledger accounting, sizing math, spectral risk, margin monitor, breaker."""
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from quantester.events import BUY, SELL, FillEvent
+from quantester.events import (
+    BUY,
+    CANCEL_ORDER,
+    EXIT,
+    LONG,
+    MARKET_ORDER,
+    SELL,
+    FillEvent,
+    MarketEvent,
+    SignalEvent,
+)
 from quantester.portfolio.portfolio import (
     FixedUnitSizer,
     PercentEquitySizer,
     PortfolioManager,
 )
 from quantester.portfolio.risk import (
+    DailyDrawdownBreaker,
     MarginMonitor,
     spectral_risk_attribution,
     stabilized_covariance,
@@ -135,3 +146,86 @@ def test_margin_monitor_liquidation():
     assert not monitor.is_breach(equity=100_000, gross_exposure=150_000)
     targets = monitor.liquidation_targets({"AAA": 100, "BBB": -50})
     assert targets == {"AAA": 50.0, "BBB": -25.0}
+
+
+# ------------------------------------------------------- daily drawdown breaker
+
+D1, D2, D3 = (
+    pd.Timestamp("2024-01-02"),
+    pd.Timestamp("2024-01-03"),
+    pd.Timestamp("2024-01-04"),
+)
+
+
+class _Queue(list):
+    def put(self, item):
+        self.append(item)
+
+
+def _valuation(ts, close):
+    bar = pd.Series({"open": close, "high": close, "low": close,
+                     "close": close, "volume": 1e6})
+    return MarketEvent(ts, bars={"AAA": bar}, phase="close")
+
+
+def test_breaker_threshold_and_rollover_reset():
+    breaker = DailyDrawdownBreaker(max_intraday_dd=0.045)
+    assert not breaker.update(D1, 100_000.0)      # seeds the baseline
+    assert not breaker.update(D1, 95_600.0)       # 4.4% < 4.5%: holds
+    assert breaker.update(D1, 95_500.0)           # 4.5%: trips (>= boundary)
+    assert breaker.halted and breaker.triggered_count == 1
+    assert not breaker.update(D1, 94_000.0)       # already halted: no re-fire
+    assert breaker.triggered_count == 1
+    assert not breaker.update(D2, 94_000.0)       # rollover resets the halt
+    assert not breaker.halted
+    # New day baseline is the carried 94k: another 4.5%+ slide re-trips.
+    assert breaker.update(D2, 89_700.0)
+    assert breaker.triggered_count == 2
+
+
+def test_breaker_liquidates_cancels_and_blocks_entries():
+    from quantester.data.streaming import StreamingDataHandler
+
+    idx = pd.bdate_range("2024-01-02", periods=4)
+    df = pd.DataFrame(
+        {"open": 100.0, "high": 100.0, "low": 100.0, "close": 100.0,
+         "volume": 1e6},
+        index=idx,
+    )
+    handler = StreamingDataHandler({"AAA": df})
+    breaker = DailyDrawdownBreaker(max_intraday_dd=0.045)
+    portfolio = PortfolioManager(handler, 100_000.0, drawdown_breaker=breaker)
+    portfolio.update_from_fill(FillEvent(D1, "AAA", 100, BUY, 100.0, 0.0, 0.0))
+    # cash 90k, long 100 @ 100
+
+    queue = _Queue()
+    portfolio.update_portfolio_valuation(_valuation(D1, 100.0), queue)
+    assert not breaker.halted and len(queue) == 0
+
+    # Day 2: close 50 -> equity 95k -> 5% intraday drawdown trips the breaker.
+    portfolio.update_portfolio_valuation(_valuation(D2, 50.0), queue)
+    assert breaker.halted
+    cancels = [o for o in queue if o.order_type == CANCEL_ORDER]
+    liquidations = [o for o in queue if o.order_type == MARKET_ORDER]
+    assert len(cancels) == 1 and cancels[0].symbol == "AAA"
+    assert len(liquidations) == 1
+    assert liquidations[0].direction == SELL
+    assert liquidations[0].quantity == pytest.approx(100.0)
+    assert liquidations[0].earliest_fill_time == idx[2]  # next bar's open
+
+    # While halted ALL signal flow is suspended (entries and exits alike);
+    # the breaker's own parked liquidation order handles the flattening.
+    n = len(queue)
+    portfolio.update_from_signal(SignalEvent(D2, "AAA", LONG, strength=1.0), queue)
+    portfolio.update_from_signal(
+        SignalEvent(D2, "AAA", EXIT, cancel_orders=True), queue
+    )
+    assert len(queue) == n
+
+    # Day 3 rollover: halt clears, entries resume (reference price available).
+    portfolio.update_portfolio_valuation(_valuation(D3, 50.0), queue)
+    assert not breaker.halted
+    handler.set_phase("close", D3)
+    n = len(queue)
+    portfolio.update_from_signal(SignalEvent(D3, "AAA", LONG, strength=0.5), queue)
+    assert len(queue) > n
