@@ -38,6 +38,7 @@ permutation testing, drawdown double bootstrap, O-U synthetic paths).
 ```bash
 pip install -e .[dev]
 pytest
+python examples/production_research/run.py   # reference workflow (audit→PBO→MCPT→gates)
 python examples/ma_cross/run.py              # backtest + tearsheet + truncation
 python examples/custom_strategy/run.py       # build a strategy from scratch
 python examples/monte_carlo/run.py           # Monte Carlo validation suite
@@ -50,7 +51,9 @@ python examples/tranche_pullback/run_parameter_study.py
 python examples/tranche_pullback/run_parameter_study_intraday.py --tf 4h
 ```
 
-See [`examples/README.md`](examples/README.md) for the full per-strategy layout.
+See [`examples/production_research/README.md`](examples/production_research/README.md) for the
+production-grade research checklist, and [`examples/README.md`](examples/README.md) for the
+full per-strategy layout.
 ## Visualization
 
 `quantester/visualization` renders post-run artifacts (bars, indicators,
