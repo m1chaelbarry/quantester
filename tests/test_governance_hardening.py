@@ -63,17 +63,47 @@ def test_data_audit_pass_warn_fail():
     )
     assert report.status in {PASS, WARN}
     assert not report.failures()
+    assert report.passed is (report.status == PASS)
+    assert report.data_validated is report.passed
 
     bad = good.copy()
     bad.iloc[1, bad.columns.get_loc("high")] = 1.0  # high < open/close
     fail_report = audit_ohlcv_frame(bad, "AAA")
     assert fail_report.status == FAIL
+    assert not fail_report.passed
+
+    nan = good.copy()
+    nan.iloc[2, nan.columns.get_loc("close")] = np.nan
+    nan_report = audit_ohlcv_frame(nan, "AAA")
+    assert nan_report.status == FAIL
+    assert any(c.name == "ohlcv_finite" and c.status == FAIL for c in nan_report.checks)
 
     naive = good.copy()
     naive.index = pd.bdate_range("2024-01-01", periods=5)  # naive
     naive_report = audit_ohlcv_frame(naive, "AAA")
     assert any(c.name == "timestamp_timezone_explicit" and c.status == FAIL
                for c in naive_report.checks)
+
+
+def test_normalize_rejects_duplicate_timestamps_by_default():
+    idx = pd.DatetimeIndex(
+        ["2024-01-01", "2024-01-01", "2024-01-02"], tz="UTC"
+    )
+    df = pd.DataFrame(
+        {"open": 1, "high": 2, "low": 0.5, "close": 1.5, "volume": 10},
+        index=idx,
+    )
+    with pytest.raises(ValueError, match="duplicate"):
+        normalize_ohlcv_frame(df, "AAA")
+    kept = normalize_ohlcv_frame(df, "AAA", on_duplicates="keep_first")
+    assert len(kept) == 2
+
+
+def test_all_not_applicable_gates_are_not_validated():
+    gates = evaluate_gates()  # every outcome left as NOT_APPLICABLE / not run
+    report = build_validation_report(gates, trial_count=0, code_version="0.1.0")
+    assert report.status == NOT_VALIDATED
+    assert not report.validated
 
 
 def test_margin_blocks_new_entries_until_recovery():

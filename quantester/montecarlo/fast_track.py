@@ -7,6 +7,8 @@ strategy logic and cost models directly to NumPy/pandas arrays.
 PARITY CONTRACT with the event engine (asserted by test):
 - target positions are decided on bar T's close and executed at bar T+1's open
 - fills use the SAME CostModel adverse adjustments as SimulatedExecutionHandler
+- open fills evaluate Kaufman/range costs on the **prior** bar (or a zero-range
+  open proxy on the first bar) — never the fill bar's own H/L
 - cash_t  = cash_{t-1} - dQ_t * fill_price_t - commission(|dQ_t|)
 - equity_t = cash_t + Q_t * close_t
 """
@@ -38,6 +40,26 @@ class FastResult:
         if len(rets) < 2 or rets.std() == 0:
             return 0.0
         return float(rets.mean() / rets.std() * np.sqrt(252))
+
+
+def _open_cost_bar(i: int, open_, high, low, close, volume) -> dict:
+    """Match SimulatedExecutionHandler open-phase cost proxy (no same-bar H/L)."""
+    if i > 0:
+        return {
+            "open": float(open_[i]),
+            "high": float(high[i - 1]),
+            "low": float(low[i - 1]),
+            "close": float(close[i - 1]),
+            "volume": float(volume[i - 1]),
+        }
+    o = float(open_[i])
+    return {
+        "open": o,
+        "high": o,
+        "low": o,
+        "close": o,
+        "volume": float(volume[i]),
+    }
 
 
 def fast_backtest(ohlc: pd.DataFrame, target: pd.Series, cost_model: CostModel,
@@ -106,11 +128,10 @@ def fast_backtest(ohlc: pd.DataFrame, target: pd.Series, cost_model: CostModel,
             continue
         # Route through adverse_adjustment (not the individual terms) so any
         # CostModel override — e.g. ConservativeFrictionCostModel — applies
-        # identically on both tracks.
-        adj = cost_model.adverse_adjustment(
-            open_[i], abs(delta),
-            {"high": high[i], "low": low[i], "volume": volume[i]},
-        )
+        # identically on both tracks. Open-fill cost bar matches the engine
+        # temporal firewall (prior bar / zero-range proxy).
+        cost_bar = _open_cost_bar(i, open_, high, low, close, volume)
+        adj = cost_model.adverse_adjustment(open_[i], abs(delta), cost_bar)
         fill_price[i] = open_[i] + np.sign(delta) * adj
         # Pass the fill reference so notional-based cost models (e.g.
         # ConservativeFrictionCostModel) charge identical fees on both tracks.

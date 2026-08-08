@@ -61,6 +61,31 @@ def test_ledger_accounting_round_trip():
     assert portfolio.trades[0]["pnl"] == pytest.approx(200.0)
 
 
+def test_trade_pnl_includes_entry_commission():
+    portfolio = _portfolio()
+    portfolio.update_from_fill(FillEvent(TS, "AAA", 100, BUY, 10.0, 2.0, 0.0))
+    portfolio.update_from_fill(FillEvent(TS, "AAA", 100, SELL, 12.0, 1.5, 0.0))
+    trade = portfolio.trades[0]
+    assert trade["pnl"] == pytest.approx(200.0 - 2.0 - 1.5)
+    assert trade["entry_commission"] == pytest.approx(2.0)
+    assert trade["exit_commission"] == pytest.approx(1.5)
+
+
+def test_margin_reliquidates_while_breached():
+    """A single liquidation_fraction cut that leaves leverage above the limit
+    must re-fire on the next valuation (not one-shot)."""
+    monitor = MarginMonitor(max_leverage=1.5, liquidation_fraction=0.1)
+    assert monitor.update(equity=100_000, gross_exposure=300_000) is True
+    assert monitor.breach_count == 1
+    assert monitor.restricted
+    # Still breached after a tiny shrink: must return True again.
+    assert monitor.update(equity=100_000, gross_exposure=270_000) is True
+    assert monitor.breach_count == 1  # count only on first trip
+    # Recover to the limit.
+    assert monitor.update(equity=100_000, gross_exposure=150_000) is False
+    assert not monitor.restricted
+
+
 def test_ledger_costs_deducted():
     portfolio = _portfolio()
     fill = FillEvent(TS, "AAA", 100, BUY, 10.0, 1.5, 0.5)
