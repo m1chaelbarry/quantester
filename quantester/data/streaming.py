@@ -30,23 +30,46 @@ from .base import DataHandler
 REQUIRED_COLUMNS = ("open", "high", "low", "close", "volume")
 
 
-def normalize_ohlcv_frame(df: pd.DataFrame, symbol: str = "") -> pd.DataFrame:
+def normalize_ohlcv_frame(
+    df: pd.DataFrame,
+    symbol: str = "",
+    *,
+    on_duplicates: str = "raise",
+) -> pd.DataFrame:
     """Coerce a raw frame to the normalized contract; raises ValueError listing
     any missing columns so provider wiring fails fast with a clear message.
 
     Timestamps are normalized to timezone-aware UTC. Tz-naive inputs are
     localized as UTC (callers that hold exchange-local wall times must convert
     explicitly in the provider adapter before reaching this helper).
+
+    Duplicate timestamps fail by default (``on_duplicates='raise'``). Pass
+    ``on_duplicates='keep_first'`` or ``'keep_last'`` only when the caller has
+    explicitly chosen a reconciliation policy.
     """
     from .audit import ensure_utc_index
 
+    if on_duplicates not in {"raise", "keep_first", "keep_last"}:
+        raise ValueError(
+            "on_duplicates must be 'raise', 'keep_first', or 'keep_last'"
+        )
     missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
     if missing:
         raise ValueError(
             f"Frame for {symbol or '<unknown symbol>'} is missing required "
             f"OHLCV columns {missing}; got {list(df.columns)}."
         )
-    out = df[~df.index.duplicated(keep="first")].sort_index()
+    if df.index.duplicated().any():
+        n_dup = int(df.index.duplicated().sum())
+        if on_duplicates == "raise":
+            raise ValueError(
+                f"Frame for {symbol or '<unknown symbol>'} has {n_dup} "
+                "duplicate timestamp(s); pass on_duplicates='keep_first' or "
+                "'keep_last' to choose an explicit reconciliation policy."
+            )
+        keep = "first" if on_duplicates == "keep_first" else "last"
+        df = df[~df.index.duplicated(keep=keep)]
+    out = df.sort_index()
     out.index = ensure_utc_index(out.index)
     return out[list(REQUIRED_COLUMNS)].astype(float)
 

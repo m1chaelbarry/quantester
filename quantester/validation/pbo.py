@@ -54,6 +54,11 @@ def pbo_cscv(pnl: pd.DataFrame, n_blocks: int = 16,
         raise ValueError("n_blocks must be even")
     values = pnl.to_numpy(dtype=float)
     t_total, n_trials = values.shape
+    if n_trials < 2:
+        raise ValueError(
+            "PBO/CSCV requires at least 2 trials; a single trial cannot "
+            "measure selection overfitting (would spuriously report PBO=0)."
+        )
     if t_total < n_blocks:
         raise ValueError("more blocks than observations")
 

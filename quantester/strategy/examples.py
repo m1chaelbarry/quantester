@@ -18,21 +18,26 @@ class BuyAndHoldStrategy(Strategy):
 
     def __init__(self, data_handler):
         self.data_handler = data_handler
-        self._entered = False
+        self._entered: set[str] = set()
         self.delay = 1
 
     def calculate_signals(self, event, events_queue):
-        if self._entered:
-            return
-        self._entered = True
         for symbol in self.data_handler.symbols:
+            if symbol in self._entered:
+                continue
             if event.bars.get(symbol) is not None:
                 events_queue.put(
                     SignalEvent(event.timestamp, symbol, LONG, strength=1.0, delay=self.delay)
                 )
+                self._entered.add(symbol)
 
     def vectorized_signals(self, data: dict):
-        return {s: pd.Series(1.0, index=df.index) for s, df in data.items()}
+        # Position target after each close; fast-track shifts by 1 for T+1 open fill.
+        out = {}
+        for s, df in data.items():
+            series = pd.Series(1.0, index=df.index)
+            out[s] = series
+        return out
 
 
 def crossover_positions(close: pd.Series, fast: int, slow: int) -> pd.Series:

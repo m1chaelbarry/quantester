@@ -108,13 +108,22 @@ class MetaLabelingStrategy(Strategy):
                 else:
                     prob = float(self.model.predict_proba([features])[0][1])
                 if self.size_transform == "zscore":
-                    strength = zscore_size_transform(prob)
+                    # Confidence only — never invert declared side via negative strength.
+                    strength = max(0.0, zscore_size_transform(prob))
                 else:
                     strength = prob
             events_queue.put(
-                SignalEvent(signal.timestamp, signal.symbol, signal.signal_type,
-                            strength=strength, delay=signal.delay,
-                            fill_at=signal.fill_at)
+                SignalEvent(
+                    signal.timestamp,
+                    signal.symbol,
+                    signal.signal_type,
+                    strength=strength,
+                    delay=signal.delay,
+                    fill_at=signal.fill_at,
+                    limit_price=getattr(signal, "limit_price", None),
+                    cancel_orders=getattr(signal, "cancel_orders", False),
+                    stop_distance=getattr(signal, "stop_distance", None),
+                )
             )
 
     def fit_secondary(self, features: pd.DataFrame, close: pd.Series,

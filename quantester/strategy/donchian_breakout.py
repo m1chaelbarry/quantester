@@ -22,8 +22,10 @@ Mathematical model (all levels from closes/highs/lows under the firewall):
 - Short entry at close T: Close_T < B_down,T AND Close_T < SMA_200 AND ADX > 25.
 - Execution: delay=1 market fill at the open of bar T+1.
 - Protective floor: latched at the fill-bar open ∓ stop_atr_mult × ATR_14
-  (ATR taken from the signal bar). Triggered by Kaufman's close-execution rule
-  (intra-bar high/low touch → market-on-close at this bar's close).
+  (ATR taken from the signal bar). Triggered when the bar's high/low touches
+  the stop at close; execution is delay=1 at the **next bar's open** (OHLC
+  backtests must not fill the same bar's close after observing that bar's
+  extremes — that hybrid is not live-tradable without an intrabar event).
 - Trailing stop: opposite 10-period Donchian boundary from prior bars
   (long: min Low_{t-1..t-10}; short: max High_{t-1..t-10}); close breach exits
   at the next open (delay=1).
@@ -235,8 +237,8 @@ class DonchianBreakoutStrategy(Strategy):
         if self._state == LONG_STATE:
             protective = self._protective_stop
             if protective is not None and low_t <= protective:
-                # Kaufman close-execution: intra-bar touch, fill this close.
-                self._emit_exit(event, events_queue, fill_at="close")
+                # Stop touch observed at close → fill next open (delay=1).
+                self._emit_exit(event, events_queue)
             elif close_t < sma_exit or close_t < trail_long:
                 self._emit_exit(event, events_queue)
             return
@@ -244,7 +246,7 @@ class DonchianBreakoutStrategy(Strategy):
         if self._state == SHORT_STATE:
             protective = self._protective_stop
             if protective is not None and high_t >= protective:
-                self._emit_exit(event, events_queue, fill_at="close")
+                self._emit_exit(event, events_queue)
             elif close_t > sma_exit or close_t > trail_short:
                 self._emit_exit(event, events_queue)
 

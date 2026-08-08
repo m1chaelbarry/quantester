@@ -122,7 +122,14 @@ def permutation_test(data, optimizer, n_reps: int = 1000, seed: int | None = Non
     optimizer(data) -> float performance metric (higher is better). Drives the
     vectorized fast-track, never 10,000 event-loop re-runs (Cross-Ref 3.2).
     permute_fn(data, rng) defaults to permute_log_changes for a price Series.
+
+    ``n_reps`` is Masters' total trial count **including the original**: the
+    engine runs ``n_reps - 1`` permutations and forms
+    ``p = (1 + #{perm >= orig}) / n_reps``. Requesting ``n_reps`` shuffles
+    would inflate the denominator by one and break the exact p-value.
     """
+    if n_reps < 2:
+        raise ValueError("n_reps must be >= 2 (original + at least one permutation)")
     if permute_fn is None:
         permute_fn = permute_log_changes
     rng = np.random.default_rng(seed)

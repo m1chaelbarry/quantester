@@ -144,13 +144,20 @@ class MarginMonitor:
         return self.leverage(equity, gross_exposure) > self.max_leverage
 
     def update(self, equity: float, gross_exposure: float) -> bool:
-        """Update restriction state; return True only on a newly tripped breach."""
+        """Update restriction state; return True whenever still breached.
+
+        Returns True on every valuation call while leverage remains above
+        ``max_leverage`` so the portfolio can re-issue shrink orders (one-shot
+        liquidation is insufficient when fills are partial, capped, or when a
+        single ``liquidation_fraction`` cut does not restore safe leverage).
+        ``breach_count`` increments only on the transition into restriction.
+        """
         if self.is_breach(equity, gross_exposure):
             newly = not self.restricted
             self.restricted = True
             if newly:
                 self.breach_count += 1
-            return newly
+            return True
         # Explicit safe recovery: leverage back at or below the limit.
         self.restricted = False
         return False

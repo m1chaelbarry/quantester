@@ -1,9 +1,12 @@
 """Dataset-quality audit for point-in-time OHLCV research datasets.
 
 Statuses are ``PASS``, ``WARN``, or ``FAIL``. Warnings are never silently
-promoted to passes. Corporate-action, survivorship, and universe-membership
-checks are documentation/assumption gates when the dataset does not carry
-explicit metadata — they surface as WARN until the caller documents them.
+promoted to passes. ``DataAuditReport.passed`` / ``data_validated`` require
+a clean PASS; ``data_valid`` allows WARN (no FAIL). Production workflows
+must require ``data_validated`` (or ``passed``), not merely ``data_valid``.
+Corporate-action, survivorship, and universe-membership checks are
+documentation/assumption gates when the dataset does not carry explicit
+metadata — they surface as WARN until the caller documents them.
 
 Verification status: not covered by the notebook — implemented as an
 engineering data-integrity layer for Quantester's retail research workflow.
@@ -52,7 +55,22 @@ class DataAuditReport:
 
     @property
     def passed(self) -> bool:
+        """True only on a clean PASS (warnings do not count as passed)."""
+        return self.status == PASS
+
+    @property
+    def data_valid(self) -> bool:
+        """Structural integrity: no FAIL checks (WARN allowed)."""
         return self.status != FAIL
+
+    @property
+    def data_valid_with_warnings(self) -> bool:
+        return self.status == WARN
+
+    @property
+    def data_validated(self) -> bool:
+        """Production-ready: all checks PASS including documentation gates."""
+        return self.status == PASS
 
     def failures(self) -> list[CheckResult]:
         return [c for c in self.checks if c.status == FAIL]
@@ -112,6 +130,18 @@ def _check_duplicates(index: pd.DatetimeIndex) -> CheckResult:
 
 def _check_ohlc(df: pd.DataFrame) -> list[CheckResult]:
     out = []
+    ohlcv = df[list(REQUIRED_COLUMNS)]
+    if ohlcv.isna().any().any() or not np.isfinite(ohlcv.to_numpy(dtype=float)).all():
+        n = int((~np.isfinite(ohlcv.to_numpy(dtype=float))).sum())
+        out.append(
+            CheckResult(
+                "ohlcv_finite",
+                FAIL,
+                f"{n} non-finite (NaN/inf) OHLCV value(s)",
+            )
+        )
+    else:
+        out.append(CheckResult("ohlcv_finite", PASS))
     o, h, l, c = df["open"], df["high"], df["low"], df["close"]
     if (h < np.maximum(o, c)).any() or (l > np.minimum(o, c)).any() or (h < l).any():
         n = int(((h < np.maximum(o, c)) | (l > np.minimum(o, c)) | (h < l)).sum())

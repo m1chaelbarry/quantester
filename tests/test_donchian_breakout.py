@@ -195,8 +195,8 @@ def test_mean_reversion_exit_delay1():
     assert sells[0].reference_price == pytest.approx(exit_open)
 
 
-def test_protective_atr_stop_moc():
-    """Low through entry − 2×ATR triggers Kaufman MOC exit at that bar's close."""
+def test_protective_atr_stop_next_open():
+    """Low through entry − 2×ATR at close → exit fills at the next bar's open."""
     bars = _trend(220)
     df_pre = _frame(bars)
     prior_high = df_pre["high"].iloc[-21:-1].max()
@@ -211,17 +211,20 @@ def test_protective_atr_stop_moc():
     protective = entry_open - STOP_MULT * atr_sig
     # Fill bar: stay above protective.
     bars.append((entry_open, entry_open + 1.0, entry_open - 0.05, entry_open + 0.5))
-    # Stop bar: low gaps through protective; MOC exit at this close.
+    # Stop bar: low gaps through protective (detected at close).
     stop_close = protective - 0.5
     bars.append(
         (entry_open + 0.5, entry_open + 0.6, protective - 1.0, stop_close)
     )
-    bars += [(stop_close, stop_close + 0.2, stop_close - 0.2, stop_close)] * 3
+    # Exit fills at this open (delay=1); not same-bar MOC.
+    exit_open = stop_close + 0.1
+    bars.append((exit_open, exit_open + 0.2, exit_open - 0.2, exit_open))
+    bars += [(exit_open, exit_open + 0.2, exit_open - 0.2, exit_open)] * 2
 
     _, portfolio, _ = _run(bars)
     sells = [f for f in portfolio.fills if f.direction == SELL]
     assert len(sells) >= 1
-    assert sells[0].reference_price == pytest.approx(stop_close)
+    assert sells[0].reference_price == pytest.approx(exit_open)
 
 
 def test_short_entry_symmetric():

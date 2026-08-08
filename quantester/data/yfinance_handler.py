@@ -50,7 +50,7 @@ def _import_yfinance():
     return yf
 
 
-def _normalize_history(raw: pd.DataFrame, symbol: str) -> pd.DataFrame:
+def _normalize_history(raw: pd.DataFrame, symbol: str, interval: str = "1d") -> pd.DataFrame:
     if raw is None or raw.empty:
         raise ValueError(
             f"yfinance returned no data for {symbol!r}; check the ticker, "
@@ -59,13 +59,15 @@ def _normalize_history(raw: pd.DataFrame, symbol: str) -> pd.DataFrame:
     df = raw.rename(columns=_OHLCV_MAP)
     idx = pd.DatetimeIndex(df.index)
     if idx.tz is not None:
-        # Keep exchange-local wall times (calendar dates for daily bars) and
-        # stamp them as timezone-aware UTC labels. Converting NY midnights to
-        # absolute UTC would shift daily bars to 05:00 and break cross-provider
-        # calendar alignment; intraday users who need absolute UTC should
-        # prefer ccxt or pre-convert before constructing the handler.
-        idx = idx.tz_localize(None)
-    idx = idx.tz_localize("UTC")
+        # Daily/weekly/monthly: keep exchange-local calendar dates as UTC labels
+        # so cross-provider daily joins stay on the same session date.
+        # Intraday: convert to absolute UTC (wall-clock relabel would mis-time fills).
+        if interval in {"1d", "1wk", "1mo", "5d", "3mo"}:
+            idx = idx.tz_localize(None).tz_localize("UTC")
+        else:
+            idx = idx.tz_convert("UTC")
+    else:
+        idx = idx.tz_localize("UTC")
     df.index = pd.DatetimeIndex(idx, name="datetime")
     return df
 
@@ -78,7 +80,7 @@ def _download_ohlcv(symbol: str, start=None, end=None, interval: str = "1d",
         start=start, end=end, interval=interval,
         auto_adjust=auto_adjust, **history_kwargs,
     )
-    return _normalize_history(raw, symbol)
+    return _normalize_history(raw, symbol, interval=interval)
 
 
 class YFinanceDataHandler(StreamingDataHandler):
