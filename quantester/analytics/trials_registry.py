@@ -340,7 +340,8 @@ def auto_register_from_equity(
         "mean": float(rets.mean()) if len(rets) else None,
         "std": float(rets.std()) if len(rets) else None,
         "skew": float(skew(rets)) if len(rets) > 2 else None,
-        "kurt": float(kurtosis(rets, fisher=True)) if len(rets) > 3 else None,
+        # Pearson kurtosis (normal = 3) — required by Bailey DSR formula.
+        "kurt": float(kurtosis(rets, fisher=False)) if len(rets) > 3 else None,
         "n_obs": int(len(rets)),
         "simple_mean": float(np.mean(simple)) if len(simple) else None,
         "registered_at": datetime.now(timezone.utc).isoformat(),

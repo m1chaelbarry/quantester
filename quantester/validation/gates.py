@@ -55,18 +55,23 @@ class ValidationReport:
 
     @property
     def status(self) -> str:
-        for g in self.gates:
-            if g.mandatory and g.status == FAIL:
-                return NOT_VALIDATED
+        if not self.gates:
+            return NOT_VALIDATED
         if any(g.status == FAIL for g in self.gates):
+            return NOT_VALIDATED
+        mandatory = [g for g in self.gates if g.mandatory]
+        # VALIDATED requires at least one mandatory gate that actually ran
+        # (PASS). All-NOT_APPLICABLE must never count as validated.
+        actionable = [g for g in mandatory if g.status != NOT_APPLICABLE]
+        if not actionable:
             return NOT_VALIDATED
         if any(g.status == WARN for g in self.gates):
             return WARN
-        if not self.gates:
-            return NOT_VALIDATED
-        return VALIDATED if all(
-            g.status in {PASS, NOT_APPLICABLE} for g in self.gates if g.mandatory
-        ) else WARN
+        if all(g.status == PASS for g in actionable) and all(
+            g.status in {PASS, NOT_APPLICABLE} for g in mandatory
+        ):
+            return VALIDATED
+        return WARN
 
     @property
     def validated(self) -> bool:

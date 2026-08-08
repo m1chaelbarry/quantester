@@ -2,9 +2,11 @@
 
 Verification status:
 - Notebook-verified: Wilder ATR (via `visualization.indicators.atr`); the
-  Kaufman close-execution stop rule (intra-bar trigger, close fill, TSM
-  ch. 23) including the must-reenter-when-trend-intact behavior (the machine
-  re-arms after any exit whenever the regime is bullish); Ehlers' wide
+  Kaufman stop *trigger* on the intra-bar low (TSM ch. 23) including the
+  must-reenter-when-trend-intact behavior (the machine re-arms after any exit
+  whenever the regime is bullish). Same-bar close MOC after observing the low
+  is **not** used here — OHLC backtests lack an intrabar trigger event, so the
+  exit is delay=1 at the next open (look-ahead-safe). Ehlers' wide
   catastrophic-stop-only warning and Chan's mean-reversion stop-loss fallacy
   (both motivate the 5x ATR width and keep the SMA_5 exit stop-free).
 - Not covered by the notebook: the tranche grid, fractions, regime filter and
@@ -38,17 +40,14 @@ Mathematical model (all levels in price terms, computed from closes):
   otherwise a runaway market strands the capital at a dead anchor forever).
 - Mean-reversion exit: once any tranche is filled, close all tranches (market,
   next bar's open) when close_t >= SMA_5(t).
-- Hard stop at P_peak - 5.0 * ATR_14, executed per Kaufman's close-execution
-  rule (notebook-verified, Trading Systems and Methods ch. 23: "use the high
-  and low to trigger the stop, but actually exit on the close — that way you
-  take advantage of market noise to improve the exit price"): the bar's LOW
-  touching the latched stop triggers a market-on-close exit at that bar's
-  close. The stop price is never the fill price — gap risk is honored
-  (Cross-Ref-2 section 4.2). The 5x ATR width follows Ehlers' warning that
-  tight integral stops decimate robustness: this layer is catastrophic-only,
-  and Chan's stop-loss fallacy (mean-reversion stops force exits at maximum
-  adverse excursion) is the reason the SMA_5 reversion exit carries the
-  normal risk workload.
+- Hard stop at P_peak - 5.0 * ATR_14. For OHLC backtests the bar's LOW
+  touching the latched stop is detected at close and the exit is delay=1 at
+  the **next bar's open** (not same-bar MOC: observing the low and filling
+  that bar's close is not a live-tradable path without an intrabar trigger
+  event). Gap risk through the stop is honored on the next open
+  (Cross-Ref-2 section 4.2). The 5x ATR width follows Ehlers' catastrophic-
+  stop-only warning; Chan's stop-loss fallacy motivates keeping the SMA_5
+  reversion exit stop-free.
 
 Execution mechanics under the temporal firewall (delay=1):
 
@@ -249,9 +248,8 @@ class TranchePullbackStrategy(Strategy):
             # Frozen: latched levels govern the remaining tranches, the stop
             # and the exit until the position is completely closed.
             if float(bar["low"]) <= self._stop:
-                # Kaufman close-execution rule: intra-bar low triggers, exit
-                # fills at THIS bar's close (market-on-close).
-                self._emit_exit(event, events_queue, fill_at="close")
+                # Stop touch observed at close → fill next open (delay=1).
+                self._emit_exit(event, events_queue)
             elif close_t >= sma_exit:
                 self._emit_exit(event, events_queue)  # mean reversion to SMA_5
             return

@@ -249,7 +249,10 @@ class PortfolioManager(Portfolio):
         if lot is None:
             if abs(signed_qty) > 0:
                 self._open_lots[fill.symbol] = {
-                    "qty": signed_qty, "avg_price": fill.fill_price, "t0": fill.timestamp,
+                    "qty": signed_qty,
+                    "avg_price": fill.fill_price,
+                    "t0": fill.timestamp,
+                    "commission": float(fill.commission),
                 }
             return
         if np.sign(signed_qty) == np.sign(lot["qty"]) or signed_qty == 0:
@@ -259,13 +262,23 @@ class PortfolioManager(Portfolio):
                 / abs(new_qty)
             )
             lot["qty"] = new_qty
+            lot["commission"] = float(lot.get("commission", 0.0)) + float(fill.commission)
             return
         # Closing (fully or partially): realize pnl on the closed portion.
-        # Slippage is embedded in entry/exit fill prices; only commissions are
-        # charged separately to avoid double-counting.
+        # Slippage is embedded in entry/exit fill prices; commissions on both
+        # entry (pro-rated) and exit are deducted so round-trip costs are not
+        # understated.
         closed = min(abs(signed_qty), abs(lot["qty"]))
+        entry_commission = float(lot.get("commission", 0.0))
+        if abs(lot["qty"]) > 1e-12 and closed + 1e-12 < abs(lot["qty"]):
+            remain_frac = (abs(lot["qty"]) - closed) / abs(lot["qty"])
+            allocated_entry = entry_commission * (1.0 - remain_frac)
+            lot["commission"] = entry_commission * remain_frac
+            entry_commission = allocated_entry
+        else:
+            lot["commission"] = 0.0
         pnl = closed * (fill.fill_price - lot["avg_price"]) * np.sign(lot["qty"])
-        pnl -= fill.commission
+        pnl -= fill.commission + entry_commission
         self.trades.append(
             {
                 "symbol": fill.symbol,
@@ -276,14 +289,22 @@ class PortfolioManager(Portfolio):
                 "entry_price": lot["avg_price"],
                 "exit_price": fill.fill_price,
                 "pnl": pnl,
+                "commission": fill.commission + entry_commission,
+                "entry_commission": entry_commission,
+                "exit_commission": fill.commission,
             }
         )
         remaining = lot["qty"] + signed_qty
         if abs(remaining) < 1e-12:
             del self._open_lots[fill.symbol]
         elif np.sign(remaining) != np.sign(lot["qty"]):
+            # Flip: this fill's commission was fully attributed to the closed
+            # leg above; the new lot starts with zero carried entry commission.
             self._open_lots[fill.symbol] = {
-                "qty": remaining, "avg_price": fill.fill_price, "t0": fill.timestamp,
+                "qty": remaining,
+                "avg_price": fill.fill_price,
+                "t0": fill.timestamp,
+                "commission": 0.0,
             }
         else:
             lot["qty"] = remaining
@@ -323,7 +344,7 @@ class PortfolioManager(Portfolio):
             and self.margin_monitor is not None
             and self.margin_monitor.update(equity, self.gross_exposure)
         ):
-            # Newly tripped breach: cancel resting risk, then shrink.
+            # Still breached (including re-trips): cancel resting risk, shrink.
             self._margin_liquidate(market_event, events_queue)
 
         if (

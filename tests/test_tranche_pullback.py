@@ -125,19 +125,19 @@ def test_regime_filter_blocks_entries_below_sma200():
     assert portfolio.trades == []
 
 
-def test_hard_stop_triggers_on_low_and_exits_at_close():
-    """Kaufman close-execution rule (notebook-verified): the intra-bar LOW
-    triggers the stop; the exit fills at that same bar's close — not the next
-    open, and never at the guaranteed stop price."""
+def test_hard_stop_triggers_on_low_and_exits_next_open():
+    """Intra-bar LOW triggers the stop at close; exit fills at the next open
+    (delay=1). Same-bar MOC after observing the low is not live-tradable on
+    OHLC without an intrabar trigger event."""
     bars = _ramp()
     bars += [
         (100.0, 100.0, 99.80, 99.83),  # 200: fills T1, T2 (low above stop)
         # 201: low breaches the latched stop (T3 fills at the open first);
         # the close stays ABOVE the stop — a close-triggered stop would not
-        # fire, proving the low trigger + same-close fill.
+        # fire, proving the low trigger.
         (99.83, 99.85, 99.60, 99.77),
-        # 202+: still bullish, so the machine re-anchors; these lows stay above
-        # the fresh T1 (~99.88), so no new tranche fills.
+        # 202: exit fills at this open (delay=1 after stop detection).
+        (99.70, 99.72, 99.68, 99.71),
     ] + [(99.92, 99.92, 99.92, 99.92)] * 3
     _, portfolio = _run(bars)
 
@@ -149,8 +149,8 @@ def test_hard_stop_triggers_on_low_and_exits_at_close():
     assert len(buys) == 3  # gap bar took out all three resting limits
     assert [f.reference_price for f in buys] == pytest.approx(thresholds)
     assert len(sells) == 1
-    assert sells[0].timestamp == frame.index[201]   # same-bar close auction
-    assert sells[0].fill_price == pytest.approx(99.77)  # the close print
+    assert sells[0].timestamp == frame.index[202]   # next-bar open fill
+    assert sells[0].fill_price == pytest.approx(99.70)  # open of exit bar
     assert sells[0].quantity == pytest.approx(sum(b.quantity for b in buys))
     assert portfolio.positions == {}
     assert len(portfolio.trades) == 1 and portfolio.trades[0]["pnl"] < 0

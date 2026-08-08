@@ -1,9 +1,11 @@
 """Trade-level resampling and equity-curve modeling (MC Report section 2).
 
 - Ehlers' parametric equity randomization: the system is stripped to win-rate p
-  and profit factor PF; each trade draws u ~ U(0,1), wins if u <= p, paying
-  avg_loss * PF, else loses avg_loss. M = 10,000 simulated paths give the
-  distribution of final returns.
+  and the **average-win / average-loss ratio** (often also called PF in Ehlers'
+  presentation — not the realized gross-win/gross-loss profit factor). Each
+  trade draws u ~ U(0,1), wins if u <= p paying ``|avg_loss| * ratio``, else
+  loses ``|avg_loss|``. M = 10,000 simulated paths give the distribution of
+  final returns.
 - Empirical "hat" resampling: draw historical returns WITH REPLACEMENT to build
   synthetic paths (e.g. 260-day years), preserving the exact empirical return
   distribution; block-bootstrap variant preserves serial correlation (Kaufman's
@@ -30,9 +32,17 @@ def ehlers_randomized_equity(win_rate: float, profit_factor: float,
                              avg_loss: float, n_trades: int,
                              n_sims: int = 10_000, e0: float = 1.0,
                              seed: int | None = None) -> np.ndarray:
-    """Parametric randomization; returns (n_sims, n_trades + 1) equity paths."""
+    """Parametric randomization; returns (n_sims, n_trades + 1) equity paths.
+
+    ``profit_factor`` here is the **avg_win / avg_loss** ratio used by Ehlers'
+    parametric form (win payoff = ``|avg_loss| * profit_factor``). It is not
+    the sample gross profit factor ``sum(wins) / sum(|losses|)``, which also
+    embeds win rate; passing a realized PF would mis-scale the win payoff.
+    """
     if not (0.0 <= win_rate <= 1.0):
         raise ValueError("win_rate must be in [0, 1]")
+    if profit_factor < 0:
+        raise ValueError("profit_factor (avg_win/avg_loss) must be non-negative")
     rng = np.random.default_rng(seed)
     u = rng.random((n_sims, n_trades))
     pnl = np.where(u <= win_rate, abs(avg_loss) * profit_factor, -abs(avg_loss))

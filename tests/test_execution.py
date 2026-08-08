@@ -25,8 +25,13 @@ BAR = pd.Series({"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5,
                  "volume": 1e6})
 
 
-def _market(ts, bar=BAR):
-    return MarketEvent(ts, bars={"AAA": bar}, phase="open")
+def _market(ts, bar=BAR, phase="open"):
+    return MarketEvent(ts, bars={"AAA": bar}, phase=phase)
+
+
+def _close(ts, bar=BAR):
+    """Close-phase market event: STOP / LIMIT / MOC touch tests are eligible."""
+    return _market(ts, bar, phase="close")
 
 
 class _Queue(list):
@@ -106,7 +111,8 @@ def test_stop_gap_through_fills_at_next_available_price():
     queue = _Queue()
     gap_bar = pd.Series({"open": 110.0, "high": 115.0, "low": 108.0,
                          "close": 112.0, "volume": 1e6})
-    execution.on_market(_market(T0, gap_bar), queue)
+    # STOP touch tests run at close phase once full OHLC is known.
+    execution.on_market(_close(T0, gap_bar), queue)
     buy_stop = OrderEvent(T0, "AAA", STOP_ORDER, 100, BUY,
                           earliest_fill_time=T0, stop_price=105.0)
     execution.execute_order(buy_stop, queue)
@@ -116,7 +122,7 @@ def test_stop_gap_through_fills_at_next_available_price():
     # Untriggered stop stays pending.
     execution2 = SimulatedExecutionHandler(CostModel())
     queue2 = _Queue()
-    execution2.on_market(_market(T0), queue2)
+    execution2.on_market(_close(T0), queue2)
     far_stop = OrderEvent(T0, "AAA", STOP_ORDER, 100, BUY,
                           earliest_fill_time=T0, stop_price=200.0)
     execution2.execute_order(far_stop, queue2)
@@ -133,7 +139,7 @@ def test_limit_buy_fills_at_limit_price():
     queue = _Queue()
     bar = pd.Series({"open": 100.0, "high": 100.5, "low": 99.4,
                      "close": 100.2, "volume": 1e6})
-    execution.on_market(_market(T0, bar), queue)
+    execution.on_market(_close(T0, bar), queue)
     order = OrderEvent(T0, "AAA", LIMIT_ORDER, 10, BUY,
                        earliest_fill_time=T0, limit_price=99.5)
     execution.execute_order(order, queue)
@@ -148,7 +154,7 @@ def test_limit_buy_gap_down_fills_at_open_with_improvement():
     queue = _Queue()
     bar = pd.Series({"open": 98.0, "high": 98.5, "low": 97.5,
                      "close": 98.2, "volume": 1e6})
-    execution.on_market(_market(T0, bar), queue)
+    execution.on_market(_close(T0, bar), queue)
     order = OrderEvent(T0, "AAA", LIMIT_ORDER, 10, BUY,
                        earliest_fill_time=T0, limit_price=99.5)
     execution.execute_order(order, queue)
@@ -161,12 +167,12 @@ def test_limit_untouched_rests_then_fills_later():
     queue = _Queue()
     high_bar = pd.Series({"open": 100.0, "high": 100.5, "low": 99.6,
                           "close": 100.2, "volume": 1e6})
-    execution.on_market(_market(T0, high_bar), queue)
+    execution.on_market(_close(T0, high_bar), queue)
     order = OrderEvent(T0, "AAA", LIMIT_ORDER, 10, BUY,
                        earliest_fill_time=T0, limit_price=99.5)
     execution.execute_order(order, queue)
     assert len(queue) == 0                     # 99.6 low never touched 99.5
-    execution.on_market(_market(T1), queue)    # default BAR low = 99.0
+    execution.on_market(_close(T1), queue)    # default BAR low = 99.0
     assert len(queue) == 1
     assert queue[0].fill_price == pytest.approx(99.5)
 
@@ -176,7 +182,7 @@ def test_sell_limit_fills_at_max_open_limit():
     queue = _Queue()
     gap_up = pd.Series({"open": 102.0, "high": 102.5, "low": 101.5,
                         "close": 102.2, "volume": 1e6})
-    execution.on_market(_market(T0, gap_up), queue)
+    execution.on_market(_close(T0, gap_up), queue)
     order = OrderEvent(T0, "AAA", LIMIT_ORDER, 10, SELL,
                        earliest_fill_time=T0, limit_price=101.0)
     execution.execute_order(order, queue)
@@ -185,7 +191,7 @@ def test_sell_limit_fills_at_max_open_limit():
 
     execution2 = SimulatedExecutionHandler(CostModel(**_ZERO))
     queue2 = _Queue()
-    execution2.on_market(_market(T0), queue2)  # BAR: open 100, high 101
+    execution2.on_market(_close(T0), queue2)  # BAR: open 100, high 101
     order2 = OrderEvent(T0, "AAA", LIMIT_ORDER, 10, SELL,
                         earliest_fill_time=T0, limit_price=100.5)
     execution2.execute_order(order2, queue2)
@@ -194,8 +200,8 @@ def test_sell_limit_fills_at_max_open_limit():
 
 
 def test_cancel_order_purges_resting_book():
-    """CANCEL pulls every resting order for the symbol; fills already done
-    are untouched, and later bars cannot resurrect the purged orders."""
+    """CANCEL pulls every pending order for the symbol — including residual
+    MARKET slices — so liquidation / exit cancels cannot leave zombie risk."""
     execution = SimulatedExecutionHandler(CostModel(**_ZERO))
     queue = _Queue()
     execution.on_market(_market(T0), queue)  # BAR low 99.0, high 101.0
@@ -204,7 +210,7 @@ def test_cancel_order_purges_resting_book():
     stop = OrderEvent(T0, "AAA", STOP_ORDER, 10, BUY,
                       earliest_fill_time=T0, stop_price=200.0)    # parked (untouched)
     market = OrderEvent(T0, "AAA", MARKET_ORDER, 7, SELL,
-                        earliest_fill_time=T2)                    # committed exit in flight
+                        earliest_fill_time=T2)                    # residual MARKET
     execution.execute_order(limit, queue)
     execution.execute_order(stop, queue)
     execution.execute_order(market, queue)
@@ -212,13 +218,11 @@ def test_cancel_order_purges_resting_book():
     execution.execute_order(
         OrderEvent(T0, "AAA", CANCEL_ORDER, 0, BUY, earliest_fill_time=T0), queue
     )
-    execution.on_market(_market(T1), queue)  # low 99.0 would touch the limit
+    execution.on_market(_close(T1), queue)  # low 99.0 would touch the limit
     execution.on_market(_market(T2), queue)
-    # Only the parked MARKET order survives the purge and fills at T2's open;
-    # the resting limit and stop are gone.
-    assert len(queue) == 1
-    assert queue[0].quantity == 7 and queue[0].direction == SELL
-    assert queue[0].timestamp == T2
+    execution.on_market(_close(T2), queue)
+    # Full book purge: limit, stop, and MARKET residual are all gone.
+    assert len(queue) == 0
 
 
 def test_moc_fills_at_close_same_bar_only():
@@ -226,9 +230,11 @@ def test_moc_fills_at_close_same_bar_only():
     MOC expires instead of filling at a later close (live auction semantics)."""
     execution = SimulatedExecutionHandler(CostModel(**_ZERO))
     queue = _Queue()
-    execution.on_market(_market(T0), queue)  # BAR close = 100.5
+    execution.on_market(_market(T0), queue)  # open: MOC parks until close
     moc = OrderEvent(T0, "AAA", MOC_ORDER, 10, SELL, earliest_fill_time=T0)
     execution.execute_order(moc, queue)
+    assert len(queue) == 0
+    execution.on_market(_close(T0), queue)  # BAR close = 100.5
     assert len(queue) == 1
     assert queue[0].fill_price == pytest.approx(100.5)   # close, not the open
     assert queue[0].timestamp == T0
@@ -236,11 +242,11 @@ def test_moc_fills_at_close_same_bar_only():
     # Submitted after its bar has passed: expires unfilled, never parks.
     execution2 = SimulatedExecutionHandler(CostModel(**_ZERO))
     queue2 = _Queue()
-    execution2.on_market(_market(T1), queue2)
+    execution2.on_market(_close(T1), queue2)
     stale = OrderEvent(T1, "AAA", MOC_ORDER, 10, SELL, earliest_fill_time=T0)
     execution2.execute_order(stale, queue2)
     assert len(queue2) == 0
-    execution2.on_market(_market(T2), queue2)  # later bars cannot revive it
+    execution2.on_market(_close(T2), queue2)  # later bars cannot revive it
     assert len(queue2) == 0
 
 
@@ -248,7 +254,7 @@ def test_moc_fill_pays_friction():
     model = ConservativeFrictionCostModel(spread_pct=0.0002, fee_rate=0.0004)
     execution = SimulatedExecutionHandler(model)
     queue = _Queue()
-    execution.on_market(_market(T0), queue)  # BAR: close 100.5
+    execution.on_market(_close(T0), queue)  # BAR: close 100.5
     moc = OrderEvent(T0, "AAA", MOC_ORDER, 10, BUY, earliest_fill_time=T0)
     execution.execute_order(moc, queue)
     fill = queue[0]
@@ -279,7 +285,7 @@ def test_friction_model_charged_on_limit_fills():
     queue = _Queue()
     bar = pd.Series({"open": 100.0, "high": 100.5, "low": 99.4,
                      "close": 100.2, "volume": 1e6})
-    execution.on_market(_market(T0, bar), queue)
+    execution.on_market(_close(T0, bar), queue)
     order = OrderEvent(T0, "AAA", LIMIT_ORDER, 10, BUY,
                        earliest_fill_time=T0, limit_price=99.5)
     execution.execute_order(order, queue)

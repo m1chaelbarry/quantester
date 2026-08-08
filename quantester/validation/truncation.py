@@ -53,6 +53,17 @@ def run_truncation_test(run_fn, n_truncated: int = 20,
         raise ValueError("Backtest produced no positions history to compare.")
 
     common = full.index.intersection(truncated.index)
+    if len(common) == 0:
+        return TruncationResult(
+            passed=False,
+            n_truncated=n_truncate,
+            rows_compared=0,
+            mismatches=[
+                {
+                    "error": "no overlapping rows between full and truncated runs",
+                }
+            ],
+        )
     a = full.loc[common].sort_index()
     b = truncated.loc[common].sort_index()
     a, b = a.align(b, join="inner", axis=1)
