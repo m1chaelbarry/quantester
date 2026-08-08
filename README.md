@@ -38,6 +38,7 @@ permutation testing, drawdown double bootstrap, O-U synthetic paths).
 ```bash
 pip install -e .[dev]
 pytest
+python examples/hello_trader/run.py       # shortest path (trader-friendly)
 python examples/production_research/run.py   # reference workflow (audit→PBO→MCPT→gates)
 python examples/ma_cross/run.py              # backtest + tearsheet + truncation
 python examples/custom_strategy/run.py       # build a strategy from scratch
@@ -49,6 +50,21 @@ python examples/donchian_breakout/run_multi_coin_viz.py   # daily multi-coin das
 python examples/donchian_breakout/run_mcpt.py             # hourly MCPT (negative result)
 python examples/tranche_pullback/run_parameter_study.py
 python examples/tranche_pullback/run_parameter_study_intraday.py --tf 4h
+```
+
+Trader who wants the happy path first? Start with
+[`docs/for-traders.md`](docs/for-traders.md) and `examples/hello_trader/run.py`.
+
+```python
+from quantester import MovingAverageCrossStrategy, run_backtest
+from quantester.utils.synthetic import make_synthetic_ohlcv
+
+result = run_backtest(
+    make_synthetic_ohlcv("AAA", seed=1),
+    MovingAverageCrossStrategy,
+    symbol="AAA", fast=10, slow=40,
+)
+result.print_summary()
 ```
 
 See [`examples/production_research/README.md`](examples/production_research/README.md) for the
@@ -105,6 +121,8 @@ python examples/market_data/run.py   # live-data backtest via yfinance + ccxt
 
 Full documentation lives in [`docs/`](docs/README.md):
 
+- [For traders](docs/for-traders.md) — plain-language happy path (start here if
+  you are not a full-time coder)
 - [Getting started](docs/getting-started.md) — install, examples, tests
 - [Architecture & core concepts](docs/architecture.md) — the event lifecycle
   and the temporal firewall

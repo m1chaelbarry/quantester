@@ -20,7 +20,6 @@ from quantester.analytics.performance import summarize
 from quantester.analytics.tearsheet import generate_tearsheet
 from quantester.data.csv_handler import HistoricCSVDataHandler
 from quantester.engine import BacktestEngine
-from quantester.events import EXIT, LONG, SignalEvent
 from quantester.execution.costs import CostModel
 from quantester.execution.simulator import SimulatedExecutionHandler
 from quantester.montecarlo.fast_track import fast_backtest
@@ -53,14 +52,9 @@ class MomentumStrategy(Strategy):
         if len(bars) < self.lookback + 1:
             return  # not enough history yet
         momentum = bars["close"].iloc[-1] / bars["close"].iloc[0] - 1.0
-        if momentum > 0 and self._position <= 0:
-            events_queue.put(SignalEvent(event.timestamp, self.symbol,
-                                         LONG, strength=1.0, delay=self.delay))
-            self._position = 1.0
-        elif momentum <= 0 and self._position > 0:
-            events_queue.put(SignalEvent(event.timestamp, self.symbol,
-                                         EXIT, strength=1.0, delay=self.delay))
-            self._position = 0.0
+        # emit_target only fires when the target changes (no commission spam).
+        target = 1.0 if momentum > 0 else 0.0
+        self.emit_target(events_queue, event.timestamp, self.symbol, target)
 
     def vectorized_signals(self, data: dict):
         close = data[self.symbol]["close"]

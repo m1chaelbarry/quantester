@@ -40,7 +40,17 @@ engine, ledger, cost models, and validation gates all behave as specified.
 ## Run the bundled examples
 
 Examples are grouped **one folder per strategy/demo** — see
-[`examples/README.md`](../examples/README.md).
+[`examples/README.md`](../examples/README.md). Prefer
+[`docs/for-traders.md`](for-traders.md) if you want the plain-language path.
+
+### 0. Shortest path: `examples/hello_trader/run.py`
+
+```bash
+python examples/hello_trader/run.py
+```
+
+One-call `run_backtest` + plain-English summary + tearsheet. Start here if you
+are a trader first and a coder second.
 
 ### 1. Event-driven backtest: `examples/ma_cross/run.py`
 
@@ -48,7 +58,7 @@ Examples are grouped **one folder per strategy/demo** — see
 python examples/ma_cross/run.py
 ```
 
-This script is the canonical "hello world" of the engine. It:
+This script is the fuller "hello world" of the engine (sweep + DSR). It:
 
 1. Generates three synthetic OHLCV symbols (`AAA`, `BBB`, `CCC`) and writes
    them as CSVs to `examples/data/` — `BBB` has deliberately missing bars so

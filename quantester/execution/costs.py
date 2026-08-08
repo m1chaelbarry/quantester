@@ -29,6 +29,27 @@ class CostModel:
     slippage_vol_coef: float = 0.1       # Kaufman coefficient on bar range pct
     impact_coef: float = 0.1             # Kyle lambda scale (Amihud-style)
 
+    def __post_init__(self):
+        for name in (
+            "fixed_commission",
+            "per_share_commission",
+            "spread_pct",
+            "slippage_vol_coef",
+            "impact_coef",
+        ):
+            value = float(getattr(self, name))
+            if value < 0:
+                raise ValueError(
+                    f"CostModel.{name} must be >= 0 (costs cannot be negative). "
+                    f"Got {value!r}."
+                )
+            setattr(self, name, value)
+        if self.spread_pct >= 0.05:
+            raise ValueError(
+                f"CostModel.spread_pct={self.spread_pct!r} looks like a percentage "
+                "instead of a fraction. Use 0.0005 for 5 bps, not 0.05 or 5."
+            )
+
     def commission(self, quantity: float, price: float | None = None) -> float:
         """c_t: proportional + fixed exchange/clearing/regulatory costs.
 

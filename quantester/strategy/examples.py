@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from ..events import EXIT, LONG, SHORT, SignalEvent
+from ..events import LONG, SignalEvent
 from .base import Strategy
 
 
@@ -64,7 +64,19 @@ class MovingAverageCrossStrategy(Strategy):
     def __init__(self, data_handler, symbol: str, fast: int = 10, slow: int = 30,
                  direction: str = "both", delay: int = 1):
         if fast >= slow:
-            raise ValueError("fast window must be smaller than slow window")
+            raise ValueError(
+                f"fast window ({fast}) must be smaller than slow window ({slow}). "
+                "Example: fast=10, slow=40 means a 10-bar average crossing a 40-bar average."
+            )
+        if direction not in ("long", "short", "both"):
+            raise ValueError(
+                f"direction must be 'long', 'short', or 'both'; got {direction!r}."
+            )
+        if not isinstance(delay, int) or isinstance(delay, bool) or delay < 0:
+            raise ValueError(
+                f"delay must be an integer >= 0 (0 = this bar's open, "
+                f"1 = next bar's open). Got {delay!r}."
+            )
         self.data_handler = data_handler
         self.symbol = symbol
         self.fast = fast
@@ -72,21 +84,6 @@ class MovingAverageCrossStrategy(Strategy):
         self.direction = direction  # 'long', 'short', or 'both'
         self.delay = delay
         self._position = 0.0
-
-    def _emit(self, timestamp, events_queue, target: float):
-        if target == self._position:
-            return
-        if target == 0.0:
-            signal_type = EXIT
-        elif target > 0:
-            signal_type = LONG
-        else:
-            signal_type = SHORT
-        events_queue.put(
-            SignalEvent(timestamp, self.symbol, signal_type,
-                        strength=abs(target), delay=self.delay)
-        )
-        self._position = target
 
     def calculate_signals(self, event, events_queue):
         if event.bars.get(self.symbol) is None:
@@ -108,7 +105,8 @@ class MovingAverageCrossStrategy(Strategy):
             target = 0.0
         elif self.direction == "short" and target > 0:
             target = 0.0
-        self._emit(event.timestamp, events_queue, float(target))
+        # emit_target only fires when the target changes (avoids commission spam).
+        self.emit_target(events_queue, event.timestamp, self.symbol, float(target))
 
     def vectorized_signals(self, data: dict):
         close = data[self.symbol]["close"]
