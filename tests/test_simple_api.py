@@ -107,3 +107,31 @@ def test_engine_rejects_wrong_order_components(aaa):
 def test_ma_cross_friendly_window_error():
     with pytest.raises(ValueError, match="fast window"):
         MovingAverageCrossStrategy(None, "AAA", fast=40, slow=10)
+
+
+def test_check_lookahead_passes(aaa):
+    result = run_backtest(
+        aaa, MovingAverageCrossStrategy, symbol="AAA", fast=5, slow=20,
+    )
+    truncation = result.check_lookahead(n_truncate=20)
+    assert truncation.passed
+
+
+def test_public_exports_include_data_helpers():
+    import quantester
+
+    assert callable(quantester.load_yahoo)
+    assert callable(quantester.load_crypto)
+    assert callable(quantester.make_synthetic_ohlcv)
+    assert callable(quantester.generate_tearsheet)
+
+
+def test_streaming_calendar_helpers(aaa):
+    from quantester.data.csv_handler import HistoricCSVDataHandler
+
+    handler = HistoricCSVDataHandler({"AAA": aaa})
+    assert handler.n_bars == len(aaa)
+    assert handler.first_timestamp == aaa.index[0]
+    assert handler.last_timestamp == aaa.index[-1]
+    frame = handler.source_ohlcv("AAA")
+    assert list(frame.columns)[:4] == ["open", "high", "low", "close"]

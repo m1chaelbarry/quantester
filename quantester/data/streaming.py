@@ -100,6 +100,21 @@ class StreamingDataHandler(DataHandler):
         return self._symbols
 
     @property
+    def n_bars(self) -> int:
+        """Number of timestamps on the master (outer-join) calendar."""
+        return len(self._master_index)
+
+    @property
+    def first_timestamp(self):
+        """First master-calendar timestamp, or None if empty."""
+        return None if self._master_index.empty else self._master_index[0]
+
+    @property
+    def last_timestamp(self):
+        """Last master-calendar timestamp, or None if empty."""
+        return None if self._master_index.empty else self._master_index[-1]
+
+    @property
     def current_timestamp(self):
         return self._ts
 
