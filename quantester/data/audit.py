@@ -105,7 +105,8 @@ def _check_timezone(index: pd.DatetimeIndex) -> CheckResult:
             offset = index[0].utcoffset() if len(index) else None
             if offset is not None and offset.total_seconds() == 0:
                 return CheckResult("timestamp_timezone_explicit", PASS, "UTC-equivalent tz")
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
+            # Non-standard tzinfo without a usable utcoffset — fall through to WARN.
             pass
         return CheckResult(
             "timestamp_timezone_explicit",

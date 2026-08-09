@@ -16,7 +16,7 @@ from quantester.execution.costs import CostModel
 from quantester.execution.simulator import SimulatedExecutionHandler
 from quantester.portfolio.portfolio import PercentEquitySizer, PortfolioManager
 from quantester.strategy.tranche_pullback import TranchePullbackStrategy
-from quantester.visualization.indicators import atr as wilder_atr
+from quantester.indicators import atr as wilder_atr
 
 ZERO_COSTS = CostModel(
     fixed_commission=0.0, per_share_commission=0.0, spread_pct=0.0,

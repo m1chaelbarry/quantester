@@ -65,6 +65,18 @@ class DataHandler(ABC):
         """Execution-side lookup of a full bar at a timestamp (None if unavailable)."""
         ...
 
+    def source_ohlcv(self, symbol: str) -> pd.DataFrame:
+        """Full loaded OHLCV frame for research scripts (not for live signals).
+
+        Strategies must use ``get_latest_bars`` under the temporal firewall.
+        Example scripts and post-run analysis should call this instead of
+        reaching into private ``_data``.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not expose source_ohlcv(); "
+            "use a StreamingDataHandler-based feed or load frames directly."
+        )
+
     @property
     @abstractmethod
     def current_timestamp(self):

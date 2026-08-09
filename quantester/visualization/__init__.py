@@ -4,7 +4,8 @@ Static charts (``plot_candles``, ``plot_equity``, ``plot_trade_analysis``,
 ``plot_monthly_returns``, ``plot_rolling_metrics``, ``plot_path_distribution``)
 plus a scrollable, interactive matplotlib viewer (``interactive_view``) with
 scroll-wheel zoom, drag panning, and a crosshair readout. Indicator helpers
-(SMA/EMA/RSI/MACD/Bollinger/ATR) live in ``visualization.indicators``.
+(SMA/EMA/RSI/MACD/Bollinger/ATR) live in ``quantester.indicators`` and are
+re-exported from ``visualization.indicators`` for charts.
 """
 
 from . import indicators

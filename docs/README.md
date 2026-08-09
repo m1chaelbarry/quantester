@@ -40,6 +40,8 @@ New here? Read the pages in this order:
 
 ## Reference material
 
+- [Clean Code audit](clean-code-audit.md) — adherence vs maintainability rules,
+  with prioritized follow-ups.
 - [Glossary](glossary.md) — the quant terms used across the docs (Sharpe, DSR,
   PBO, MCPT, optimal-f, temporal firewall, …).
 - [FAQ & Troubleshooting](faq.md) — common pitfalls and their fixes.

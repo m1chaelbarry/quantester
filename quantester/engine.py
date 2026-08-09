@@ -50,7 +50,8 @@ class BacktestEngine:
         if getattr(self.execution_handler, "data_handler", None) is None:
             try:
                 self.execution_handler.data_handler = data_handler
-            except Exception:
+            except AttributeError:
+                # Handler exposes a read-only data_handler; leave unwired.
                 pass
 
     def run_backtest(self):
