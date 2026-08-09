@@ -20,7 +20,13 @@ dependencies = [
 dev = ["pytest"]
 yfinance = ["yfinance>=0.2.40"]
 ccxt = ["ccxt>=4"]
-data = ["yfinance>=0.2.40", "ccxt>=4"]
+akshare = ["akshare>=1.14"]
+data = [
+    "yfinance>=0.2.40",
+    "ccxt>=4",
+    "akshare>=1.14",
+    "requests>=2.31",
+]
 
 [tool.setuptools.packages.find]
 include = ["quantester*"]

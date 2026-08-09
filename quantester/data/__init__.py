@@ -5,9 +5,12 @@ from .audit import (
     audit_ohlcv_frame,
     ensure_utc_index,
 )
+from .akshare_handler import AKShareDataHandler
 from .ccxt_handler import CCXTDataHandler
 from .csv_handler import HistoricCSVDataHandler
+from .fmp_handler import FMPDataHandler
 from .streaming import StreamingDataHandler, normalize_ohlcv_frame
+from .stooq_handler import StooqDataHandler
 from .yfinance_handler import YFinanceDataHandler
 
 __all__ = [
@@ -16,6 +19,9 @@ __all__ = [
     "HistoricCSVDataHandler",
     "YFinanceDataHandler",
     "CCXTDataHandler",
+    "StooqDataHandler",
+    "FMPDataHandler",
+    "AKShareDataHandler",
     "normalize_ohlcv_frame",
     "ensure_utc_index",
     "audit_ohlcv_frame",

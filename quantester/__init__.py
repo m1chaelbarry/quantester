@@ -19,7 +19,15 @@ from .portfolio import (
     PercentEquitySizer,
     PortfolioManager,
 )
-from .simple import BacktestResult, load_crypto, load_yahoo, run_backtest
+from .simple import (
+    BacktestResult,
+    load_akshare,
+    load_crypto,
+    load_fmp,
+    load_stooq,
+    load_yahoo,
+    run_backtest,
+)
 from .strategy import (
     BuyAndHoldStrategy,
     DonchianBreakoutStrategy,
@@ -48,6 +56,9 @@ __all__ = [
     "BacktestResult",
     "load_yahoo",
     "load_crypto",
+    "load_stooq",
+    "load_fmp",
+    "load_akshare",
     "make_synthetic_ohlcv",
     # Core wiring
     "BacktestEngine",

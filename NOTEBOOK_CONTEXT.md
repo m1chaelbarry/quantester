@@ -51,13 +51,15 @@ Supporting packages:
 
 ```bash
 pip install -e .[dev]          # engine + pytest
-pip install "quantester[data]" # optional: yfinance + ccxt live data feeds
+pip install "quantester[data]" # optional: yfinance + ccxt + akshare + requests
 pytest                          # full suite, finishes in seconds
 ```
 
 Runtime dependencies: `numpy`, `pandas`, `scipy`, `scikit-learn`,
 `matplotlib`. Optional extras: `yfinance` (Yahoo Finance), `ccxt>=4` (100+
-crypto exchanges). Tests live in `tests/` (one file per module) and are
+crypto exchanges), `akshare` (China/US portals), `requests` (Stooq/FMP/macro
+REST). Macro overlays live in `quantester.macro` (World Bank, NBP, GUS).
+Tests live in `tests/` (one file per module) and are
 configured in `pyproject.toml` (`pythonpath=["."]`, `testpaths=["tests"]`).
 
 ## 3. Core architecture invariants
@@ -150,7 +152,11 @@ quantester/
 │   ├── csv_handler.py     # HistoricCSVDataHandler (CSV files or DataFrames)
 │   ├── yfinance_handler.py# YFinanceDataHandler (Yahoo Finance, optional extra)
 │   ├── ccxt_handler.py    # CCXTDataHandler (crypto exchanges, optional extra)
+│   ├── stooq_handler.py   # StooqDataHandler (CSV download, API key)
+│   ├── fmp_handler.py     # FMPDataHandler (stable EOD, API key)
+│   ├── akshare_handler.py # AKShareDataHandler (CN/US daily)
 │   └── bars.py            # dollar bars, tick/dollar/volume imbalance bars (AFML ch. 2)
+├── macro/                 # World Bank / NBP / GUS overlays + as_daily_reindex
 ├── strategy/
 │   ├── base.py            # Strategy ABC (delay, calculate_signals, vectorized twin)
 │   ├── examples.py        # BuyAndHoldStrategy, MovingAverageCrossStrategy
@@ -265,9 +271,9 @@ Post-run portfolio attributes:
 
 ## 6. Ways to backtest a strategy
 
-### 6.1 Data sources (four feeds, one firewall)
+### 6.1 Data sources (bar feeds + macro overlays, one firewall)
 
-All feeds converge on `StreamingDataHandler`, so the temporal firewall and
+All **bar** feeds converge on `StreamingDataHandler`, so the temporal firewall and
 availability-mask semantics are identical regardless of source.
 
 **A. Seeded synthetic GBM data** (no downloads; deterministic):
@@ -321,7 +327,25 @@ handler = CCXTDataHandler(["BTC/USD", "ETH/USD"], exchange="coinbase",
 #         drop_incomplete=True (drops the still-forming last candle)
 ```
 
-**E. Tick data → information-driven bars** (`quantester/data/bars.py`, AFML
+**E. Stooq / FMP / AKShare** (`pip install "quantester[data]"`):
+
+```python
+from quantester.data import StooqDataHandler, FMPDataHandler, AKShareDataHandler
+# export QUANTESTER_STOOQ_API_KEY=... / QUANTESTER_FMP_API_KEY=...
+stooq = StooqDataHandler("aapl.us", start="2022-01-01", end="2025-01-01")
+fmp = FMPDataHandler("AAPL", start="2022-01-01", end="2025-01-01")
+ak = AKShareDataHandler("000001", market="cn", start="2022-01-01", end="2025-01-01")
+```
+
+**F. Macro overlays** (`quantester.macro` — not bar feeds):
+
+```python
+from quantester.macro import load_world_bank, load_nbp_fx, as_daily_reindex
+fx = load_nbp_fx("USD", start="2023-01-01", end="2024-12-31")
+aligned = as_daily_reindex(handler.source_ohlcv("AAPL").index, fx)
+```
+
+**G. Tick data → information-driven bars** (`quantester/data/bars.py`, AFML
 ch. 2). Input ticks: datetime-indexed DataFrame with `price, volume`; output
 is OHLCV ready for `HistoricCSVDataHandler`:
 
