@@ -32,7 +32,13 @@ class FixedUnitSizer:
     """Target = +/- units * strength per signal (used for fast-track parity)."""
 
     def __init__(self, units: float = 100.0):
-        self.units = float(units)
+        units = float(units)
+        if units <= 0:
+            raise ValueError(
+                f"FixedUnitSizer units must be positive (shares per signal). "
+                f"Got {units!r}."
+            )
+        self.units = units
 
     def __call__(self, signal, portfolio, ref_price: float) -> float:
         if signal.signal_type == EXIT:
@@ -45,7 +51,13 @@ class PercentEquitySizer:
     """Target quantity worth pct * equity * strength at the reference price."""
 
     def __init__(self, pct: float = 0.5):
-        self.pct = float(pct)
+        pct = float(pct)
+        if not 0.0 < pct <= 1.0:
+            raise ValueError(
+                f"PercentEquitySizer pct must be in (0, 1] — "
+                f"e.g. 0.9 means 'use 90% of account equity'. Got {pct!r}."
+            )
+        self.pct = pct
 
     def __call__(self, signal, portfolio, ref_price: float) -> float:
         if signal.signal_type == EXIT or ref_price <= 0:

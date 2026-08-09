@@ -37,10 +37,46 @@ def _open_visible_bars(bars: dict) -> dict:
     return out
 
 
+def _require_callable(obj, name: str, role: str) -> None:
+    if not hasattr(obj, name) or not callable(getattr(obj, name)):
+        raise TypeError(
+            f"{role} is missing required method {name}(). "
+            f"Got {type(obj).__name__}. "
+            "Did you pass the five pieces in the wrong order? "
+            "BacktestEngine(data_handler, strategy, portfolio, execution_handler)."
+        )
+
+
 class BacktestEngine:
     def __init__(self, data_handler, strategies, portfolio, execution_handler):
+        if data_handler is None:
+            raise TypeError("data_handler is required (e.g. HistoricCSVDataHandler).")
+        if portfolio is None:
+            raise TypeError("portfolio is required (e.g. PortfolioManager).")
+        if execution_handler is None:
+            raise TypeError(
+                "execution_handler is required (e.g. SimulatedExecutionHandler)."
+            )
         if not isinstance(strategies, (list, tuple)):
             strategies = [strategies]
+        if not strategies or any(s is None for s in strategies):
+            raise TypeError(
+                "Pass at least one Strategy (or a list of them). "
+                "A strategy decides when to go long/short/flat."
+            )
+        _require_callable(data_handler, "prime_data", "data_handler")
+        _require_callable(data_handler, "advance", "data_handler")
+        _require_callable(portfolio, "update_from_signal", "portfolio")
+        _require_callable(portfolio, "update_from_fill", "portfolio")
+        _require_callable(execution_handler, "execute_order", "execution_handler")
+        for i, strategy in enumerate(strategies):
+            _require_callable(strategy, "calculate_signals", f"strategies[{i}]")
+            delay = getattr(strategy, "delay", 1)
+            if not isinstance(delay, int) or isinstance(delay, bool) or delay < 0:
+                raise ValueError(
+                    f"strategies[{i}] ({type(strategy).__name__}).delay must be "
+                    f"an integer >= 0; got {delay!r}."
+                )
         self.events = queue.Queue()
         self.data_handler = data_handler
         self.strategies = list(strategies)

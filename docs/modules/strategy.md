@@ -22,6 +22,7 @@ class Strategy(ABC):
 
     def calculate_signals(self, event, events_queue): ...   # abstract
     def matches_phase(self, phase) -> bool: ...             # delay routing
+    def emit_target(self, queue, timestamp, symbol, target): ...  # safe helper
     def vectorized_signals(self, data) -> dict: ...         # MC twin (optional)
 ```
 
@@ -29,7 +30,8 @@ class Strategy(ABC):
 | --- | --- |
 | `delay` | `1` (default): act on close-phase events, fill at next bar's open. `0`: act on open-phase events, fill at the current open under the intra-bar guard. |
 | `matches_phase(phase)` | Engine-internal routing: delay-0 strategies only receive open-phase events; delay-≥1 only close-phase. Override only if you know why. |
-| `calculate_signals(event, queue)` | Your logic. Read via `event.bars` + `data_handler.get_latest_bars`; write via `queue.put(SignalEvent(...))`. Emit **only on target changes**. |
+| `calculate_signals(event, queue)` | Your logic. Read via `event.bars` + `data_handler.get_latest_bars`; write via `queue.put(SignalEvent(...))` or `emit_target`. Emit **only on target changes**. |
+| `emit_target(...)` | Preferred helper: emits LONG/SHORT/EXIT only when `target` differs from `self._position`. Prevents commission spam from re-emitting every bar. |
 | `vectorized_signals(data)` | Full-history target positions per symbol for the Monte Carlo fast-track. Must be numerically identical to the event form (share one pure function). Raises `NotImplementedError` by default. |
 
 ### The authoring contract (checklist)
@@ -37,7 +39,7 @@ class Strategy(ABC):
 1. Subclass `Strategy`; set `delay` deliberately.
 2. Guard every bar access: `if event.bars.get(symbol) is None: return`.
 3. Keep current-position state on the instance; emit only when the target
-   changes.
+   changes (prefer `emit_target`).
 4. Never read raw DataFrames — only the DataHandler interface.
 5. If Monte Carlo validation matters, implement `vectorized_signals` and keep
    the parity test green.

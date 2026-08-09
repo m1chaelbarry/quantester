@@ -19,9 +19,9 @@ only run at the close phase, and an order generated on the **last** bar is
 dropped because no future bar exists to fill it.
 
 **My strategy trades every bar and commissions eat everything.**
-You are re-emitting the same target each bar. Keep the current target on the
-instance (`self._position`) and only `put` a `SignalEvent` when the target
-changes — see `MovingAverageCrossStrategy._emit`.
+You are re-emitting the same target each bar. Use `self.emit_target(...)` (or
+keep `self._position` and only `put` a `SignalEvent` when the target changes).
+See `MovingAverageCrossStrategy` and `docs/for-traders.md`.
 
 **`NotImplementedError: ... does not provide a vectorized twin`.**
 You called a Monte Carlo fast-track function on a strategy without
