@@ -79,7 +79,7 @@ def load_or_fetch() -> pd.DataFrame:
 
     handler = CCXTDataHandler(SYMBOL, exchange="bitstamp", timeframe="1d",
                               start="2013-01-01", limit=1000)
-    df = handler._data[SYMBOL]
+    df = handler.source_ohlcv(SYMBOL)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     df.to_csv(CACHE, index_label="datetime")
     return df

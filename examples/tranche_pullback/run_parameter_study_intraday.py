@@ -87,7 +87,7 @@ def load_or_fetch(tf: str) -> pd.DataFrame:
     handler = CCXTDataHandler(SYMBOL, exchange="bitstamp",
                               timeframe=cfg["ccxt_tf"], start="2017-01-01",
                               limit=1000)
-    df = handler._data[SYMBOL]
+    df = handler.source_ohlcv(SYMBOL)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     df.to_csv(cfg["cache"], index_label="datetime")
     return df

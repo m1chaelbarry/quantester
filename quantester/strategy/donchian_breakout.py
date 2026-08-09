@@ -1,7 +1,7 @@
 """Donchian breakout with SMA regime gate, ADX filter, and ATR risk sizing.
 
 Verification status:
-- Notebook-verified: Wilder ATR (via `visualization.indicators.atr`); Vince
+- Notebook-verified: Wilder ATR (via `quantester.indicators.atr`); Vince
   fractional bet sizing principle (HPR/TWR/f* family in `portfolio.sizing`);
   delay-1 temporal firewall (signal at close T, fill at open T+1); ETF-trick
   friction booking via `ConservativeFrictionCostModel` (c_t / phi_t split).
@@ -9,7 +9,7 @@ Verification status:
   entry stack, the 10-period Donchian trailing exit, the SMA(20) mean-reversion
   exit, or the 2×ATR protective floor — implemented from the user's hourly BTC
   trend-following breakout specification. Wilder ADX is the canonical 1978
-  definition (same smoothing as ATR) via `visualization.indicators.adx`.
+  definition (same smoothing as ATR) via `quantester.indicators.adx`.
 
 Mathematical model (all levels from closes/highs/lows under the firewall):
 
@@ -50,9 +50,9 @@ from __future__ import annotations
 import numpy as np
 
 from ..events import EXIT, LONG, OPEN, SHORT, SignalEvent
-from ..visualization.indicators import adx as wilder_adx
-from ..visualization.indicators import atr as wilder_atr
-from ..visualization.indicators import donchian
+from ..indicators import adx as wilder_adx
+from ..indicators import atr as wilder_atr
+from ..indicators import donchian
 from .base import Strategy
 
 FLAT = "flat"

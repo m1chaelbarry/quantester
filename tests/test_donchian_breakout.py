@@ -17,9 +17,9 @@ from quantester.execution.costs import CostModel
 from quantester.execution.simulator import SimulatedExecutionHandler
 from quantester.portfolio.portfolio import FractionalRiskSizer, PortfolioManager
 from quantester.strategy.donchian_breakout import DonchianBreakoutStrategy
-from quantester.visualization.indicators import adx as wilder_adx
-from quantester.visualization.indicators import atr as wilder_atr
-from quantester.visualization.indicators import donchian
+from quantester.indicators import adx as wilder_adx
+from quantester.indicators import atr as wilder_atr
+from quantester.indicators import donchian
 
 ZERO_COSTS = CostModel(
     fixed_commission=0.0, per_share_commission=0.0, spread_pct=0.0,

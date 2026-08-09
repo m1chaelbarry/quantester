@@ -1,7 +1,7 @@
 """Tranche pullback strategy: volatility-spaced dip-buying ladder.
 
 Verification status:
-- Notebook-verified: Wilder ATR (via `visualization.indicators.atr`); the
+- Notebook-verified: Wilder ATR (via `quantester.indicators.atr`); the
   Kaufman stop *trigger* on the intra-bar low (TSM ch. 23) including the
   must-reenter-when-trend-intact behavior (the machine re-arms after any exit
   whenever the regime is bullish). Same-bar close MOC after observing the low
@@ -86,7 +86,7 @@ from __future__ import annotations
 import numpy as np
 
 from ..events import EXIT, LONG, OPEN, SignalEvent
-from ..visualization.indicators import atr as wilder_atr
+from ..indicators import atr as wilder_atr
 from .base import Strategy
 
 FLAT = "flat"

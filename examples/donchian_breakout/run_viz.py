@@ -58,7 +58,7 @@ def load_data() -> pd.DataFrame:
             SYMBOL, exchange="bitstamp", timeframe="1h",
             start="2024-01-01", limit=1000,
         )
-        df = handler._data[SYMBOL]
+        df = handler.source_ohlcv(SYMBOL)
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         df.to_csv(CACHE, index_label="datetime")
         return df

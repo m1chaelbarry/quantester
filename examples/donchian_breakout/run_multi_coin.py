@@ -63,7 +63,7 @@ def load_or_fetch(symbol: str) -> pd.DataFrame:
         symbol, exchange="bitstamp", timeframe="1d",
         start="2017-01-01", limit=1000,
     )
-    df = handler._data[symbol]
+    df = handler.source_ohlcv(symbol)
     df.to_csv(path, index_label="datetime")
     return df
 

@@ -69,12 +69,20 @@ ZERO_COST_MODEL = CostModel(
 
 
 @dataclass
-class BacktestResult:
-    """Assembled engine artefacts of one causal backtest run."""
+class EngineRunArtifacts:
+    """Assembled engine artefacts of one causal backtest run.
+
+    Named distinctly from any trader-facing result type so the two are not
+    confused in imports or docs.
+    """
 
     portfolio: PortfolioManager
     strategy: Strategy
     handler: HistoricCSVDataHandler
+
+
+# Backward-compatible alias (prefer EngineRunArtifacts in new code).
+BacktestResult = EngineRunArtifacts
 
 
 @dataclass
@@ -104,7 +112,7 @@ def run_pairs_backtest(
     leg_fraction: float = 0.5,
     strategy_factory: Optional[Callable] = None,
     **strategy_kwargs,
-) -> BacktestResult:
+) -> EngineRunArtifacts:
     """Assemble and run one fresh, fully causal pairs backtest.
 
     Every run builds NEW handler/strategy/portfolio/execution instances so no
@@ -123,7 +131,7 @@ def run_pairs_backtest(
     )
     execution = SimulatedExecutionHandler(cost_model or ZERO_COST_MODEL)
     BacktestEngine(handler, strategy, portfolio, execution).run_backtest()
-    return BacktestResult(portfolio=portfolio, strategy=strategy, handler=handler)
+    return EngineRunArtifacts(portfolio=portfolio, strategy=strategy, handler=handler)
 
 
 def _as_frame(source: Union[pd.DataFrame, str, Path]) -> pd.DataFrame:
@@ -132,7 +140,7 @@ def _as_frame(source: Union[pd.DataFrame, str, Path]) -> pd.DataFrame:
     return pd.read_csv(Path(source), parse_dates=["datetime"], index_col="datetime")
 
 
-def position_weights(result: BacktestResult, data: DataSource) -> pd.DataFrame:
+def position_weights(result: EngineRunArtifacts, data: DataSource) -> pd.DataFrame:
     """Position ledger as target portfolio weights per symbol per close.
 
     w_{i,t} = qty_{i,t} * close_{i,t} / equity_t, with the last available
