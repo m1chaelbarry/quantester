@@ -50,6 +50,39 @@ handler = HistoricCSVDataHandler({
   served as `None` — untradeable, never erased. Dropping incomplete bars
   would silently delete high-stress/illiquid periods and bias results.
 
+## Bundled bar feeds
+
+All converge on `StreamingDataHandler` (same firewall / availability masks):
+
+| Handler | Extra / key | Notes |
+| --- | --- | --- |
+| `HistoricCSVDataHandler` | none | CSV path or DataFrame |
+| `YFinanceDataHandler` | `[yfinance]` | Yahoo OHLCV |
+| `CCXTDataHandler` | `[ccxt]` | Exchange OHLCV |
+| `StooqDataHandler` | `[data]` + `QUANTESTER_STOOQ_API_KEY` | CSV download; tickers need suffixes (`aapl.us`) |
+| `FMPDataHandler` | `[data]` + `QUANTESTER_FMP_API_KEY` | Stable EOD JSON |
+| `AKShareDataHandler` | `[akshare]` / `[data]` | `market='cn'` A-shares or `market='us'` |
+
+One-call loaders: `load_yahoo`, `load_crypto`, `load_stooq`, `load_fmp`,
+`load_akshare` in `quantester.simple`.
+
+## Macro overlays (`quantester.macro`)
+
+Not bar feeds. Load exogenous series and align onto a trading calendar:
+
+```python
+from quantester.macro import (
+    load_world_bank, load_nbp_fx, load_gus_variable, as_daily_reindex,
+)
+
+cpi = load_world_bank("FP.CPI.TOTL.ZG", "USA", start=2010, end=2024)
+fx = load_nbp_fx("USD", start="2023-01-01", end="2024-12-31")
+aligned = as_daily_reindex(price_index, fx)  # ffill onto bar calendar
+```
+
+Requires `pip install "quantester[data]"`. Optional GUS key:
+`QUANTESTER_GUS_API_KEY` (`X-ClientId`).
+
 ## Dataset-quality audit
 
 `quantester/data/audit.py` — reusable PASS / WARN / FAIL checks (timezone,

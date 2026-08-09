@@ -104,17 +104,31 @@ viewer.show()   # interactive backend: scroll/drag/keys
 
 ## Market data providers
 
-All feeds share one streaming implementation, so the temporal firewall and
+All bar feeds share one streaming implementation, so the temporal firewall and
 availability-mask semantics are identical regardless of source:
 
 - `HistoricCSVDataHandler` — local `datetime,open,high,low,close,volume` CSVs.
 - `YFinanceDataHandler` — free Yahoo Finance OHLCV
   (`pip install "quantester[yfinance]"`).
 - `CCXTDataHandler` — free OHLCV from 100+ crypto exchanges via ccxt
-  (`pip install "quantester[ccxt]"`, or `quantester[data]` for both).
+  (`pip install "quantester[ccxt]"`).
+- `StooqDataHandler` / `FMPDataHandler` — free EOD via Stooq CSV / FMP stable
+  API (need API keys: `QUANTESTER_STOOQ_API_KEY`, `QUANTESTER_FMP_API_KEY`).
+- `AKShareDataHandler` — free China A-share / US daily via AKShare
+  (`pip install "quantester[akshare]"`).
+- Macro overlays in `quantester.macro` — World Bank, NBP FX, GUS BDL
+  (not bar feeds; align with `as_daily_reindex`).
+
+Install everything with `pip install "quantester[data]"` (yfinance + ccxt +
+akshare + requests).
+
+Not integrated on free tiers (broken, paid, or non-OHLCV): investpy, Finnhub
+equity candles, TradingEconomics, CurrencyFreaks history, Alpha Vantage /
+Marketstack free quotas, CoinGecko OHLC (no volume), HistData scrapes.
 
 ```bash
-python examples/market_data/run.py   # live-data backtest via yfinance + ccxt
+python examples/market_data/run.py   # equity/crypto bar feeds
+python examples/macro_data/run.py    # World Bank + NBP overlay demo
 ```
 
 ## Documentation

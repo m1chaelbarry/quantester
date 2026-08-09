@@ -192,6 +192,93 @@ def load_crypto(
     return {symbol: handler.source_ohlcv(symbol) for symbol in handler.symbols}
 
 
+def load_stooq(
+    symbols: str | list[str],
+    start=None,
+    end=None,
+    interval: str = "d",
+    *,
+    api_key: str | None = None,
+    **kwargs,
+) -> dict[str, pd.DataFrame]:
+    """Download Stooq OHLCV CSV into a ``{symbol: DataFrame}`` map.
+
+    Requires ``pip install "quantester[data]"`` and ``QUANTESTER_STOOQ_API_KEY``
+    (or ``api_key=``). Tickers need Stooq suffixes (e.g. ``\"aapl.us\"``).
+    """
+    from .data.stooq_handler import StooqDataHandler
+
+    if isinstance(symbols, str):
+        symbols = [symbols]
+    handler = StooqDataHandler(
+        list(symbols),
+        start=start,
+        end=end,
+        interval=interval,
+        api_key=api_key,
+        **kwargs,
+    )
+    return {symbol: handler.source_ohlcv(symbol) for symbol in handler.symbols}
+
+
+def load_fmp(
+    symbols: str | list[str],
+    start=None,
+    end=None,
+    *,
+    api_key: str | None = None,
+    **kwargs,
+) -> dict[str, pd.DataFrame]:
+    """Download FMP stable EOD OHLCV into a ``{symbol: DataFrame}`` map.
+
+    Requires ``pip install "quantester[data]"`` and ``QUANTESTER_FMP_API_KEY``
+    (or ``api_key=``).
+    """
+    from .data.fmp_handler import FMPDataHandler
+
+    if isinstance(symbols, str):
+        symbols = [symbols]
+    handler = FMPDataHandler(
+        list(symbols),
+        start=start,
+        end=end,
+        api_key=api_key,
+        **kwargs,
+    )
+    return {symbol: handler.source_ohlcv(symbol) for symbol in handler.symbols}
+
+
+def load_akshare(
+    symbols: str | list[str],
+    start=None,
+    end=None,
+    *,
+    market: str = "cn",
+    adjust: str = "qfq",
+    period: str = "daily",
+    **kwargs,
+) -> dict[str, pd.DataFrame]:
+    """Download AKShare OHLCV into a ``{symbol: DataFrame}`` map.
+
+    Requires ``pip install "quantester[akshare]"``. ``market='cn'`` (default)
+    uses A-share daily history; ``market='us'`` uses US daily.
+    """
+    from .data.akshare_handler import AKShareDataHandler
+
+    if isinstance(symbols, str):
+        symbols = [symbols]
+    handler = AKShareDataHandler(
+        list(symbols),
+        start=start,
+        end=end,
+        market=market,
+        adjust=adjust,
+        period=period,
+        **kwargs,
+    )
+    return {symbol: handler.source_ohlcv(symbol) for symbol in handler.symbols}
+
+
 def _coerce_data(data: dict | pd.DataFrame, symbol: str | None) -> dict:
     """Accept a single DataFrame or a {symbol: frame_or_path} map."""
     if isinstance(data, pd.DataFrame):
