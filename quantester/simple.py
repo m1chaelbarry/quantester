@@ -11,23 +11,27 @@ example uses, with safe defaults and checks that catch common mistakes early.
 
 Example::
 
-    from quantester import run_backtest, MovingAverageCrossStrategy
-    from quantester.utils.synthetic import make_synthetic_ohlcv
+    from quantester import (
+        MovingAverageCrossStrategy,
+        load_yahoo,
+        make_synthetic_ohlcv,
+        run_backtest,
+    )
 
-    data = {"AAA": make_synthetic_ohlcv("AAA", seed=1)}
     result = run_backtest(
-        data,
+        make_synthetic_ohlcv("AAA", seed=1),
         MovingAverageCrossStrategy,
         symbol="AAA",
         fast=10,
         slow=40,
     )
     result.print_summary()
+    print(result.check_lookahead())
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
@@ -56,6 +60,9 @@ class BacktestResult:
 
     portfolio: PortfolioManager
     stats: dict
+    _rebuild: Callable[[int | None], "BacktestResult"] | None = field(
+        default=None, repr=False, compare=False
+    )
 
     @property
     def equity(self) -> pd.Series:
@@ -106,6 +113,83 @@ class BacktestResult:
 
     def print_summary(self) -> None:
         print(self.summary())
+
+    def check_lookahead(self, n_truncate: int = 30):
+        """Ernest Chan truncation test: overlapping positions must match.
+
+        Re-runs the same backtest with the last ``n_truncate`` bars removed.
+        A PASS means no look-ahead leak; FAIL means future data contaminated
+        past decisions.
+        """
+        if self._rebuild is None:
+            raise RuntimeError(
+                "check_lookahead() needs a result from run_backtest(...). "
+                "Results built by hand have no rebuild recipe."
+            )
+        from .validation.truncation import run_truncation_test
+
+        return run_truncation_test(
+            lambda n: self._rebuild(n).portfolio.positions_history,
+            n_truncated=n_truncate,
+        )
+
+
+def load_yahoo(
+    symbols: str | list[str],
+    start=None,
+    end=None,
+    interval: str = "1d",
+    *,
+    auto_adjust: bool = True,
+    **history_kwargs,
+) -> dict[str, pd.DataFrame]:
+    """Download Yahoo Finance OHLCV into a ``{symbol: DataFrame}`` map.
+
+    Requires ``pip install "quantester[yfinance]"``. Pass the result straight
+    into ``run_backtest``.
+    """
+    from .data.yfinance_handler import YFinanceDataHandler
+
+    if isinstance(symbols, str):
+        symbols = [symbols]
+    handler = YFinanceDataHandler(
+        list(symbols),
+        start=start,
+        end=end,
+        interval=interval,
+        auto_adjust=auto_adjust,
+        **history_kwargs,
+    )
+    return {symbol: handler.source_ohlcv(symbol) for symbol in handler.symbols}
+
+
+def load_crypto(
+    symbols: str | list[str],
+    *,
+    exchange: str = "coinbase",
+    timeframe: str = "1d",
+    start=None,
+    end=None,
+    **kwargs,
+) -> dict[str, pd.DataFrame]:
+    """Download crypto OHLCV via ccxt into a ``{symbol: DataFrame}`` map.
+
+    Requires ``pip install "quantester[ccxt]"``. Pass the result straight into
+    ``run_backtest``.
+    """
+    from .data.ccxt_handler import CCXTDataHandler
+
+    if isinstance(symbols, str):
+        symbols = [symbols]
+    handler = CCXTDataHandler(
+        list(symbols),
+        exchange=exchange,
+        timeframe=timeframe,
+        start=start,
+        end=end,
+        **kwargs,
+    )
+    return {symbol: handler.source_ohlcv(symbol) for symbol in handler.symbols}
 
 
 def _coerce_data(data: dict | pd.DataFrame, symbol: str | None) -> dict:
@@ -182,6 +266,19 @@ def _build_strategy(
     )
 
 
+def _trim_data_map(data_map: dict, truncate_last: int | None) -> dict:
+    if not truncate_last:
+        return data_map
+    trimmed = {}
+    for symbol, value in data_map.items():
+        if isinstance(value, (str, Path)):
+            frame = pd.read_csv(value, parse_dates=["datetime"], index_col="datetime")
+        else:
+            frame = value
+        trimmed[symbol] = frame.iloc[:-truncate_last]
+    return trimmed
+
+
 def run_backtest(
     data: dict | pd.DataFrame,
     strategy: Strategy | StrategyFactory | type,
@@ -192,6 +289,7 @@ def run_backtest(
     sizer=None,
     costs: CostModel | None = None,
     strategy_kwargs: dict | None = None,
+    truncate_last: int | None = None,
     **kwargs,
 ) -> BacktestResult:
     """Run a full event-driven backtest with safe defaults.
@@ -200,7 +298,8 @@ def run_backtest(
     ----------
     data
         ``{symbol: DataFrame_or_csv_path}`` map, **or** a single DataFrame
-        (then pass ``symbol=``).
+        (then pass ``symbol=``). Helpers: ``load_yahoo``, ``load_crypto``,
+        ``make_synthetic_ohlcv``.
     strategy
         A ``Strategy`` subclass (plus kwargs), or ``lambda handler: Strategy(...)``.
     symbol
@@ -220,6 +319,8 @@ def run_backtest(
     strategy_kwargs
         Extra keywords for a Strategy class (e.g. ``{"fast": 10, "slow": 40}``).
         Bare kwargs like ``fast=10`` are also accepted and merged here.
+    truncate_last
+        Drop the last N bars before running (used by look-ahead checks).
     """
     if capital <= 0:
         raise ValueError(f"capital must be positive (starting cash); got {capital!r}")
@@ -237,7 +338,8 @@ def run_backtest(
         merged_kwargs["symbol"] = symbol
 
     data_map = _coerce_data(data, symbol=merged_kwargs.get("symbol", symbol))
-    handler = HistoricCSVDataHandler(data_map)
+    run_map = _trim_data_map(data_map, truncate_last)
+    handler = HistoricCSVDataHandler(run_map)
     built = _build_strategy(handler, strategy, merged_kwargs)
     portfolio = PortfolioManager(
         handler,
@@ -254,4 +356,17 @@ def run_backtest(
         "max_drawdown_duration_days": 0,
         "calmar": 0.0,
     }
-    return BacktestResult(portfolio=portfolio, stats=stats)
+
+    def _rebuild(n: int | None) -> BacktestResult:
+        return run_backtest(
+            data_map,
+            strategy,
+            capital=capital,
+            equity_pct=equity_pct,
+            sizer=sizer,
+            costs=costs,
+            strategy_kwargs=merged_kwargs,
+            truncate_last=n,
+        )
+
+    return BacktestResult(portfolio=portfolio, stats=stats, _rebuild=_rebuild)

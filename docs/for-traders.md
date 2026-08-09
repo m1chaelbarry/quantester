@@ -43,7 +43,27 @@ result.print_summary()
 ```
 
 `run_backtest` wires the five internal modules for you and returns a
-`BacktestResult` with `.equity`, `.trades`, `.sharpe`, and `.print_summary()`.
+`BacktestResult` with `.equity`, `.trades`, `.sharpe`, `.print_summary()`,
+and `.check_lookahead()` (look-ahead leak detector).
+
+### Real market data
+
+```python
+from quantester import MovingAverageCrossStrategy, load_yahoo, run_backtest
+
+data = load_yahoo("AAPL", start="2022-01-01", end="2025-01-01")
+result = run_backtest(data, MovingAverageCrossStrategy, symbol="AAPL", fast=10, slow=40)
+result.print_summary()
+```
+
+Crypto (needs `pip install "quantester[ccxt]"`)::
+
+```python
+from quantester import load_crypto, run_backtest, MovingAverageCrossStrategy
+
+data = load_crypto("BTC/USD", exchange="coinbase", timeframe="1d", start="2023-01-01")
+result = run_backtest(data, MovingAverageCrossStrategy, symbol="BTC/USD", fast=10, slow=40)
+```
 
 ## Writing your own rules
 
