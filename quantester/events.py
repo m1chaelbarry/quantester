@@ -87,6 +87,26 @@ class SignalEvent(Event):
                  fill_at=OPEN, limit_price=None, cancel_orders=False,
                  stop_distance=None):
         super().__init__(SIGNAL, timestamp)
+        if signal_type not in (LONG, SHORT, EXIT):
+            raise ValueError(
+                f"signal_type must be LONG, SHORT, or EXIT — got {signal_type!r}. "
+                "Direction comes from signal_type; do not encode it in strength."
+            )
+        if not isinstance(delay, int) or isinstance(delay, bool) or delay < 0:
+            raise ValueError(
+                f"delay must be an integer >= 0 (0 = this bar's open, "
+                f"1 = next bar's open). Got {delay!r}."
+            )
+        strength = float(strength)
+        if signal_type != EXIT and strength <= 0:
+            raise ValueError(
+                f"strength must be > 0 for {signal_type} signals "
+                f"(it scales position size, not direction). Got {strength!r}."
+            )
+        if fill_at not in (OPEN, CLOSE, "open", "close"):
+            raise ValueError(
+                f"fill_at must be 'open' or 'close'; got {fill_at!r}."
+            )
         self.symbol = symbol
         self.signal_type = signal_type
         self.strength = strength

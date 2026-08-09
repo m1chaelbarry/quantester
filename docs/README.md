@@ -8,13 +8,15 @@ communicate **only** through a strict four-event lifecycle
 
 New here? Read the pages in this order:
 
-1. [Getting Started](getting-started.md) — install, run the examples, run the tests.
-2. [Architecture & Core Concepts](architecture.md) — how the event loop, the
+1. [For traders](for-traders.md) — plain-language happy path if you are not a
+   full-time coder (`run_backtest`, scoreboard, common mistakes).
+2. [Getting Started](getting-started.md) — install, run the examples, run the tests.
+3. [Architecture & Core Concepts](architecture.md) — how the event loop, the
    four-event lifecycle, and the temporal firewall work.
-3. [Creating a Strategy & Backtesting It](tutorials/creating-a-strategy.md) —
+4. [Creating a Strategy & Backtesting It](tutorials/creating-a-strategy.md) —
    a beginner-friendly, step-by-step tutorial that takes you from an empty
    file to a validated backtest.
-4. The module references below when you need exact signatures and options.
+5. The module references below when you need exact signatures and options.
 
 ## Tutorials
 

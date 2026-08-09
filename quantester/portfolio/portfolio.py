@@ -25,10 +25,13 @@ from .base import Portfolio
 from .risk import DailyDrawdownBreaker, MarginMonitor
 from .sizers import FixedUnitSizer, FractionalRiskSizer, PercentEquitySizer
 
+# Re-export sizers for backward-compatible deep imports:
+# ``from quantester.portfolio.portfolio import PercentEquitySizer``.
 __all__ = [
     "FixedUnitSizer",
     "PercentEquitySizer",
     "FractionalRiskSizer",
+    "PortfolioManager",
 ]
 
 

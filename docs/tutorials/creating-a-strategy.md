@@ -129,18 +129,14 @@ This method is called once per bar (close phase, because `delay = 1`):
         momentum = bars["close"].iloc[-1] / bars["close"].iloc[0] - 1.0
 
         # Rule 3: only emit when the TARGET changes.
-        if momentum > 0 and self._position <= 0:
-            events_queue.put(SignalEvent(event.timestamp, self.symbol,
-                                         LONG, strength=1.0, delay=self.delay))
-            self._position = 1.0
-        elif momentum <= 0 and self._position > 0:
-            events_queue.put(SignalEvent(event.timestamp, self.symbol,
-                                         EXIT, strength=1.0, delay=self.delay))
-            self._position = 0.0
+        # emit_target does this for you (preferred — avoids commission spam).
+        target = 1.0 if momentum > 0 else 0.0
+        self.emit_target(events_queue, event.timestamp, self.symbol, target)
 ```
 
 That is a complete strategy. Note what it does **not** do: it never says how
 many shares to buy, and never touches prices beyond what the firewall served.
+(`emit_target` is the safe helper; you can still put `SignalEvent`s by hand.)
 
 ### 3c. (Optional, needed for Monte Carlo) the vectorized twin
 
@@ -322,7 +318,7 @@ Expected console output (deterministic — the data generator is seeded):
 ========================================================================
 Quantester tutorial: momentum strategy from scratch
 ========================================================================
-Backtest: total return -14.17%  sharpe -0.394  max DD -28.37%  calmar -0.176
+Backtest: total return -15.44%  sharpe -0.432  max DD -29.63%  calmar -0.185
 Trades: 44 round-trips, 88 fills
 Tearsheet written to examples/custom_strategy/output/momentum_tearsheet.png
 Truncation test [PASS]: compared 720 rows after truncating 30 bars; 0 mismatch(es).
