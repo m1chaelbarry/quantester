@@ -40,6 +40,12 @@ New here? Read the pages in this order:
 | Monte Carlo | `quantester/montecarlo` | [Monte Carlo Suite](modules/montecarlo.md) |
 | Utilities | `quantester/utils` | [Utilities: ETF Trick & Synthetic Data](modules/utils.md) |
 
+## Research notes
+
+| Note | What it covers |
+| --- | --- |
+| [Bysika & Ślepaczuk (2026) ML BTC under TC](research/bysika-slepaczuk-2026-ml-btc-transaction-costs.md) | Cost-aware hourly BTC forecasts vs Quantester costs, WFO, and validation gates. |
+
 ## Reference material
 
 - [Clean Code audit](clean-code-audit.md) — adherence vs maintainability rules,
