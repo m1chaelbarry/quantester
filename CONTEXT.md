@@ -34,6 +34,50 @@ A Quantester `Strategy` whose primary signal is a precomputed or online
 one-step return forecast mapped through sign and optional cost-aware filter.
 _Avoid_: meta-labeling as primary, secondary model
 
+### Features and selection
+
+**OHLCV+TA nest**:
+Feature set built from open/high/low/close/volume plus technical indicators and
+lags — without EGARCH volatility-model features.
+_Avoid_: OHLCV+TA+EGARCH (v1), full paper feature tiers
+
+**Optuna fold search**:
+Per walk-forward fold, an automated hyperparameter search (Optuna) over
+XGBoost settings, scored on the validation window (paper: ~50 trials/fold).
+_Avoid_: fixed defaults only, one global fit for all years
+
+**Validation selector**:
+Rule that picks which Optuna trial becomes the fold’s deployed model using
+validation-only scores — loss-best (lowest forecast error), IC-best (highest
+rank correlation of forecast vs realised return), or IR**-best (best
+validation trading score with costs).
+_Avoid_: peeking at test, picking by test Sharpe
+
+### Execution assumptions (this recreation)
+
+**Ledger-native ~10 bps friction**:
+A Quantester cost model tuned so all-in trading friction is roughly ten basis
+points of notional intent — not the paper’s flat spreadsheet `c·|Δpos|` formula.
+_Avoid_: paper flat proportional TC, ignoring the fill ledger
+
+**Delay-1 fill**:
+Signal on bar T’s close; earliest fill at bar T+1’s open under the temporal
+firewall.
+_Avoid_: close-to-close paper return identity, delay-0 open fill for this study
+
+**Availability mask**:
+A missing bar makes the symbol untradeable at that timestamp; prices are not
+forward-filled into the DataHandler.
+_Avoid_: paper flat synthetic bars in the tradeable series
+
+### Scoreboard
+
+**Parity pass criteria**:
+Cost-aware rule beats naive sign on consolidated out-of-sample net Sharpe,
+beats buy-and-hold on the same window, truncation test passes, and
+cost-stress remains non-disastrous.
+_Avoid_: must hit SR>1 or ARC≈65% under Quantester accounting
+
 ### Packaging
 
 **Separate research script**:
