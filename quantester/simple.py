@@ -140,13 +140,18 @@ def load_yahoo(
     end=None,
     interval: str = "1d",
     *,
-    auto_adjust: bool = True,
+    auto_adjust: bool = False,
     **history_kwargs,
 ) -> dict[str, pd.DataFrame]:
     """Download Yahoo Finance OHLCV into a ``{symbol: DataFrame}`` map.
 
     Requires ``pip install "quantester[yfinance]"``. Pass the result straight
     into ``run_backtest``.
+
+    Default ``auto_adjust=False`` (ruling D9): raw prices. Corporate-action
+    cash flows (dividends/splits) require running ``YFinanceDataHandler``
+    directly — a plain frames map cannot carry the ex-date schedule.
+    ``auto_adjust=True`` is a documented total-return ranking mode.
     """
     from .data.yfinance_handler import YFinanceDataHandler
 

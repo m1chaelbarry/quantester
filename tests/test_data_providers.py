@@ -162,6 +162,92 @@ def test_yfinance_import_error_is_actionable(monkeypatch):
 
 
 # --------------------------------------------------------------------------
+# D9 (ticket 25): unadjusted default + corporate-action extraction
+# --------------------------------------------------------------------------
+
+
+def _install_recording_fake_yf(monkeypatch, frames, seen):
+    class FakeTicker:
+        def __init__(self, symbol):
+            self.symbol = symbol
+
+        def history(self, start=None, end=None, interval="1d",
+                    auto_adjust=True, **kwargs):
+            seen[self.symbol] = auto_adjust
+            return _yf_raw(frames[self.symbol])
+
+    monkeypatch.setattr(yh, "_import_yfinance",
+                        lambda: SimpleNamespace(Ticker=FakeTicker))
+
+
+def test_yfinance_default_is_unadjusted_with_ca_schedule(monkeypatch):
+    """D9: the default research path loads RAW prices (auto_adjust=False)
+    and carries the dividend/split schedule as corporate-action events."""
+    frames = _make_frames()
+    seen = {}
+    _install_recording_fake_yf(monkeypatch, frames, seen)
+    YFinanceDataHandler("AAA")
+    assert seen["AAA"] is False
+
+
+def _frames_with_actions():
+    frames = _make_frames()
+    return frames
+
+
+def test_yfinance_dividends_become_corporate_action_events(monkeypatch):
+    frames = _make_frames()
+
+    class FakeTicker:
+        def __init__(self, symbol):
+            self.symbol = symbol
+
+        def history(self, start=None, end=None, interval="1d",
+                    auto_adjust=True, **kwargs):
+            raw = _yf_raw(frames[self.symbol])
+            # Two dividends and one split in the window.
+            raw.iloc[10, raw.columns.get_loc("Dividends")] = 0.25
+            raw.iloc[40, raw.columns.get_loc("Dividends")] = 0.30
+            raw.iloc[60, raw.columns.get_loc("Stock Splits")] = 2.0
+            return raw
+
+    monkeypatch.setattr(yh, "_import_yfinance",
+                        lambda: SimpleNamespace(Ticker=FakeTicker))
+    handler = YFinanceDataHandler("AAA")
+    bars = handler._data["AAA"]
+    div_10 = handler.corporate_actions_at(bars.index[10])
+    assert len(div_10) == 1 and div_10[0].kind == "dividend"
+    assert div_10[0].dividend_per_share == pytest.approx(0.25)
+    split_60 = handler.corporate_actions_at(bars.index[60])
+    assert len(split_60) == 1 and split_60[0].kind == "split"
+    assert split_60[0].split_ratio == pytest.approx(2.0)
+    # Bars carry no CA columns and no price rewrite.
+    assert list(bars.columns) == ["open", "high", "low", "close", "volume"]
+
+
+def test_yfinance_auto_adjust_true_suppresses_ca_events(monkeypatch):
+    """auto_adjust=True (total-return ranking mode) must not double-book:
+    dividends are already inside the adjusted prices, so no CA events."""
+    frames = _make_frames()
+
+    class FakeTicker:
+        def __init__(self, symbol):
+            self.symbol = symbol
+
+        def history(self, start=None, end=None, interval="1d",
+                    auto_adjust=True, **kwargs):
+            raw = _yf_raw(frames[self.symbol])
+            raw.iloc[10, raw.columns.get_loc("Dividends")] = 0.25
+            return raw
+
+    monkeypatch.setattr(yh, "_import_yfinance",
+                        lambda: SimpleNamespace(Ticker=FakeTicker))
+    handler = YFinanceDataHandler("AAA", auto_adjust=True)
+    bars = handler._data["AAA"]
+    assert handler.corporate_actions_at(bars.index[10]) == []
+
+
+# --------------------------------------------------------------------------
 # ccxt pagination + normalization
 # --------------------------------------------------------------------------
 

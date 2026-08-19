@@ -107,6 +107,13 @@ class DataHandler(ABC):
             "use a StreamingDataHandler-based feed or load frames directly."
         )
 
+    def corporate_actions_at(self, timestamp) -> list:
+        """Corporate-action events (dividend cash / split quantity) whose
+        ex-date is ``timestamp`` — routed onto the event queue by the engine
+        at the bar's open, before any fill or valuation (ruling D9). Feeds
+        without a corporate-action schedule return an empty list."""
+        return []
+
     @property
     @abstractmethod
     def current_timestamp(self):

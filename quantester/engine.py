@@ -23,7 +23,15 @@ import queue
 
 import pandas as pd
 
-from .events import FILL, MARKET, OPEN, ORDER, SIGNAL, MarketEvent
+from .events import (
+    CORPORATE_ACTION,
+    FILL,
+    MARKET,
+    OPEN,
+    ORDER,
+    SIGNAL,
+    MarketEvent,
+)
 
 
 def _open_visible_bars(bars: dict) -> dict:
@@ -124,6 +132,15 @@ class BacktestEngine:
         while dh.continue_backtest:
             timestamp, bars = dh.advance()
 
+            # Corporate actions (D9) route through the queue FIRST: ex-date
+            # split quantities / dividend cash must book before any fill or
+            # valuation on the ex-date bar. The queue is empty at the top of
+            # the loop (the prior close phase drained fully), so this drain
+            # processes only CA events.
+            for ca_event in dh.corporate_actions_at(timestamp):
+                self.events.put(ca_event)
+            self._drain_queue()
+
             # Open phase: MARKET ledger first (full bars), then delay=0 strategies
             # see open-only MarketEvent bars.
             dh.set_phase(OPEN, timestamp)
@@ -177,6 +194,9 @@ class BacktestEngine:
 
             elif event.type == FILL:
                 self.portfolio.update_from_fill(event)
+
+            elif event.type == CORPORATE_ACTION:
+                self.portfolio.update_from_corporate_action(event)
 
             self.events.task_done()
 

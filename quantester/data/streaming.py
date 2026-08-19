@@ -75,9 +75,17 @@ def normalize_ohlcv_frame(
 
 
 class StreamingDataHandler(DataHandler):
-    """DataHandler over a {symbol: normalized OHLCV DataFrame} map."""
+    """DataHandler over a {symbol: normalized OHLCV DataFrame} map.
 
-    def __init__(self, frames: dict):
+    ``corporate_actions`` (optional): ``{symbol: DataFrame}`` whose index is
+    the ex-date timestamps (normalized to UTC like the bars) with a
+    ``dividend`` and/or ``split`` column; nonzero rows become
+    ``CorporateActionEvent``s routed onto the queue at that bar's open
+    (ruling D9). Bars stay RAW — the cash/quantity effects book on the
+    portfolio ledger, never inside the price series.
+    """
+
+    def __init__(self, frames: dict, corporate_actions: dict | None = None):
         if not frames:
             raise ValueError("StreamingDataHandler requires at least one symbol.")
         self._symbols = list(frames.keys())
@@ -94,6 +102,44 @@ class StreamingDataHandler(DataHandler):
         self._ts = None
         self._phase = "close"
         self._bars = {}
+        self._ca_by_ts: dict = {}
+        if corporate_actions:
+            self.set_corporate_actions(corporate_actions)
+
+    def set_corporate_actions(self, corporate_actions: dict) -> None:
+        """Register/replace the ex-date corporate-action schedule."""
+        from ..events import CorporateActionEvent
+
+        by_ts: dict = {}
+        for symbol, frame in corporate_actions.items():
+            if symbol not in self._data:
+                raise ValueError(
+                    f"corporate_actions for unknown symbol {symbol!r}; "
+                    f"known={self._symbols}"
+                )
+            ca = frame.copy()
+            idx = pd.DatetimeIndex(ca.index)
+            ca.index = idx if idx.tz is not None else idx.tz_localize("UTC")
+            for ts, row in ca.iterrows():
+                events = []
+                dividend = float(row.get("dividend", 0.0) or 0.0)
+                split = float(row.get("split", 0.0) or 0.0)
+                if dividend > 0:
+                    events.append(
+                        CorporateActionEvent(ts, symbol, "dividend",
+                                             dividend_per_share=dividend)
+                    )
+                if split > 0:
+                    events.append(
+                        CorporateActionEvent(ts, symbol, "split",
+                                             split_ratio=split)
+                    )
+                if events:
+                    by_ts.setdefault(ts, []).extend(events)
+        self._ca_by_ts = by_ts
+
+    def corporate_actions_at(self, timestamp) -> list:
+        return list(self._ca_by_ts.get(timestamp, ()))
 
     @property
     def symbols(self) -> list:

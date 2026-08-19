@@ -58,7 +58,7 @@ All converge on `StreamingDataHandler` (same firewall / availability masks):
 | Handler | Extra / key | Notes |
 | --- | --- | --- |
 | `HistoricCSVDataHandler` | none | CSV path or DataFrame |
-| `YFinanceDataHandler` | `[yfinance]` | Yahoo OHLCV |
+| `YFinanceDataHandler` | `[yfinance]` | Yahoo OHLCV; default `auto_adjust=False` (D9) — raw prices + dividend-cash / split-quantity events |
 | `CCXTDataHandler` | `[ccxt]` | Exchange OHLCV |
 | `StooqDataHandler` | `[data]` + `QUANTESTER_STOOQ_API_KEY` | CSV download; tickers need suffixes (`aapl.us`) |
 | `FMPDataHandler` | `[data]` + `QUANTESTER_FMP_API_KEY` | Stable EOD JSON |
@@ -66,6 +66,21 @@ All converge on `StreamingDataHandler` (same firewall / availability masks):
 
 One-call loaders: `load_yahoo`, `load_crypto`, `load_stooq`, `load_fmp`,
 `load_akshare` in `quantester.simple`.
+
+## Corporate actions (D9)
+
+The default research path is an **unadjusted price ledger**: bars stay raw and
+corporate actions are events. Any `StreamingDataHandler` accepts
+`corporate_actions={symbol: DataFrame}` (ex-date index, `dividend` / `split`
+columns); the engine routes them as `CorporateActionEvent`s on the queue at
+the ex-date bar's open — before fills and valuation — and the portfolio books
+dividend cash (`position × per-share`; shorts pay) and split quantity
+(`qty × ratio`, lot average price ÷ ratio). `YFinanceDataHandler` builds this
+schedule from Yahoo's `Dividends` / `Stock Splits` columns whenever
+`auto_adjust=False`. With `auto_adjust=True` (total-return ranking mode) no
+events are emitted — dividends already live inside the adjusted prices, so
+they are never double-booked. Point-in-time membership, delistings, and halts
+remain out of scope (deferred by ticket 16).
 
 ## Macro overlays (`quantester.macro`)
 
