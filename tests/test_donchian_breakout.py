@@ -251,3 +251,105 @@ def test_short_entry_symmetric():
     sells = [f for f in portfolio.fills if f.direction == SELL]
     assert len(sells) >= 1
     assert sells[0].reference_price == pytest.approx(entry_open)
+
+
+# --------------------------------------------------------------------------
+# Resting STOP_ORDER opt-in (synthesis 5.5): intra-bar stop protection on the
+# execution ledger instead of close-observed delay-1 exits.
+# --------------------------------------------------------------------------
+
+
+def test_resting_stop_fills_at_stop_level_same_bar():
+    """resting_stops=True: the protective stop rests on the ledger from the
+    latch bar; a later bar whose low breaches it fills AT min(stop, open) on
+    that bar's close phase — one bar earlier than the delay-1 exit and at the
+    stop level rather than the next open (gap-through honored, never the
+    guaranteed stop)."""
+    bars = _trend(220)
+    df_pre = _frame(bars)
+    prior_high = df_pre["high"].iloc[-21:-1].max()
+    breakout = float(prior_high + 1.0)
+    o, h, l, _ = bars[-1]
+    bars[-1] = (o, max(h, breakout + 0.5), l, breakout)
+    # The strategy latches ATR from the SIGNAL bar (post-rewrite frame).
+    atr_sig = float(
+        wilder_atr(
+            _frame(bars[:220])["high"], _frame(bars[:220])["low"],
+            _frame(bars[:220])["close"], 14,
+        ).iloc[-1]
+    )
+
+    entry_open = breakout + 0.25
+    protective = entry_open - STOP_MULT * atr_sig
+    bars.append((entry_open, entry_open + 1.0, entry_open - 0.05, entry_open + 0.5))
+    # Stop bar: low gaps through protective; open still above it.
+    bars.append(
+        (entry_open + 0.5, entry_open + 0.6, protective - 1.0, protective - 0.5)
+    )
+    # Gap-down continuation: the legacy delay-1 exit would fill HERE, lower.
+    exit_open = protective - 0.4
+    bars.append((exit_open, exit_open + 0.2, exit_open - 0.2, exit_open))
+    bars += [(exit_open, exit_open + 0.2, exit_open - 0.2, exit_open)] * 2
+
+    strategy, portfolio, _ = _run(bars, resting_stops=True)
+    frame = _frame(bars)
+    buys = [f for f in portfolio.fills if f.direction == BUY]
+    sells = [f for f in portfolio.fills if f.direction == SELL]
+    assert len(buys) == 1
+    assert len(sells) == 1
+    # Stop fired on the touch bar itself, at the stop level (open above it).
+    assert sells[0].timestamp == frame.index[221]
+    assert sells[0].reference_price == pytest.approx(protective)
+    assert sells[0].quantity == pytest.approx(buys[0].quantity)
+    assert portfolio.positions == {}
+    assert strategy._state == "flat" or strategy._state == "exiting"
+
+
+def test_resting_stop_survives_until_exit_and_is_purged():
+    """Mean-reversion exit with a live resting stop: the EXIT must purge the
+    stop, or it would fire later and sell an already-flat book short."""
+    bars = _trend(220)
+    df_pre = _frame(bars)
+    prior_high = df_pre["high"].iloc[-21:-1].max()
+    breakout = float(prior_high + 1.0)
+    o, h, l, _ = bars[-1]
+    bars[-1] = (o, max(h, breakout + 0.5), l, breakout)
+    atr_sig = float(
+        wilder_atr(
+            _frame(bars[:220])["high"], _frame(bars[:220])["low"],
+            _frame(bars[:220])["close"], 14,
+        ).iloc[-1]
+    )
+
+    entry_open = breakout + 0.25
+    # 6x ATR protective floor (~10 below entry): the pullback bar's low must
+    # stay ABOVE it (only the SMA20 exit fires), while the post-exit bar's
+    # deep low dives THROUGH it (an unpurged stop would fire and short).
+    stop_mult = 6.0
+    protective = entry_open - stop_mult * atr_sig
+    bars.append((entry_open, entry_open + 2.0, entry_open - 0.05, entry_open + 1.0))
+    pullback = entry_open - 5.0
+    assert pullback - 0.1 > protective  # stop untouched on the exit signal bar
+    bars.append((entry_open + 1.0, entry_open + 1.1, pullback - 0.1, pullback))
+    exit_open = pullback - 0.25
+    bars.append((exit_open, exit_open + 0.5, entry_open - 30.0, exit_open))
+    assert entry_open - 30.0 < protective  # would fire a surviving stop
+    bars += [(exit_open, exit_open + 0.2, exit_open - 0.2, exit_open)] * 2
+
+    handler = StreamingDataHandler({"BTC": _frame(bars)})
+    strategy = DonchianBreakoutStrategy(
+        handler, "BTC", stop_atr_mult=stop_mult, resting_stops=True,
+    )
+    portfolio = PortfolioManager(
+        handler, CAPITAL, sizer=FractionalRiskSizer(RISK),
+    )
+    execution = SimulatedExecutionHandler(ZERO_COSTS)
+    BacktestEngine(handler, strategy, portfolio, execution).run_backtest()
+
+    buys = [f for f in portfolio.fills if f.direction == BUY]
+    sells = [f for f in portfolio.fills if f.direction == SELL]
+    assert len(buys) == 1
+    assert len(sells) == 1  # the market exit only; the stop was purged
+    assert sells[0].reference_price == pytest.approx(exit_open)
+    assert portfolio.positions == {}
+    assert execution._pending == []  # nothing rests after the exit

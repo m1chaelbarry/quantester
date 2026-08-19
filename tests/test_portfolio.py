@@ -12,6 +12,7 @@ from quantester.events import (
     MARKET_ORDER,
     MOC_ORDER,
     SELL,
+    STOP_ORDER,
     FillEvent,
     MarketEvent,
     SignalEvent,
@@ -292,6 +293,104 @@ def test_moc_signal_routing_and_delay_guard():
         portfolio.update_from_signal(
             SignalEvent(D1, "AAA", EXIT, delay=0, fill_at="close"), _Queue()
         )
+
+
+# ------------------------------------------------------ resting stop routing
+
+def test_exit_signal_with_stop_price_maps_to_stop_order():
+    """EXIT + stop_price rests a STOP order for the full open position
+    (synthesis §5.5): sized at signal time, eligible from the next bar."""
+    from quantester.data.streaming import StreamingDataHandler
+
+    idx = pd.bdate_range("2024-01-02", periods=4, tz="UTC")
+    df = pd.DataFrame(
+        {"open": 100.0, "high": 100.0, "low": 100.0, "close": 100.0,
+         "volume": 1e6},
+        index=idx,
+    )
+    handler = StreamingDataHandler({"AAA": df})
+    handler.prime_data()
+    ts, _ = handler.advance()
+    handler.set_phase("close", ts)
+    portfolio = PortfolioManager(handler, 100_000.0)
+    portfolio.update_from_fill(FillEvent(ts, "AAA", 100, BUY, 100.0, 0.0, 0.0))
+
+    queue = _Queue()
+    portfolio.update_from_signal(
+        SignalEvent(ts, "AAA", EXIT, delay=1, stop_price=95.0), queue
+    )
+    stops = [o for o in queue if o.order_type == STOP_ORDER]
+    assert len(stops) == 1
+    assert stops[0].direction == SELL
+    assert stops[0].quantity == pytest.approx(100.0)  # the full open position
+    assert stops[0].stop_price == pytest.approx(95.0)
+    assert stops[0].earliest_fill_time == idx[1]  # delay=1: next bar
+
+
+def test_exit_stop_price_on_flat_book_rests_nothing():
+    """EXIT + stop_price with no open position must not rest a stop that
+    would later SELL the book short."""
+    from quantester.data.streaming import StreamingDataHandler
+
+    idx = pd.bdate_range("2024-01-02", periods=2, tz="UTC")
+    df = pd.DataFrame(
+        {"open": 100.0, "high": 100.0, "low": 100.0, "close": 100.0,
+         "volume": 1e6},
+        index=idx,
+    )
+    handler = StreamingDataHandler({"AAA": df})
+    handler.prime_data()
+    ts, _ = handler.advance()
+    handler.set_phase("close", ts)
+    portfolio = PortfolioManager(handler, 100_000.0)
+
+    queue = _Queue()
+    portfolio.update_from_signal(
+        SignalEvent(ts, "AAA", EXIT, delay=1, stop_price=95.0), queue
+    )
+    assert [o for o in queue if o.order_type == STOP_ORDER] == []
+
+
+def test_signal_event_stop_price_validation():
+    # stop and limit on one signal are ambiguous.
+    with pytest.raises(ValueError, match="stop_price"):
+        SignalEvent(D1, "AAA", LONG, limit_price=99.0, stop_price=95.0)
+    # market-on-close and stop orders are contradictory references.
+    with pytest.raises(ValueError, match="stop_price"):
+        SignalEvent(D1, "AAA", EXIT, fill_at="close", stop_price=95.0)
+    # scoped cancels require cancel_orders=True.
+    with pytest.raises(ValueError, match="cancel_types"):
+        SignalEvent(D1, "AAA", EXIT, cancel_types=("STOP",))
+    with pytest.raises(ValueError, match="cancel_types"):
+        SignalEvent(D1, "AAA", EXIT, cancel_orders=True, cancel_types=("ICE",))
+
+
+def test_scoped_cancel_signal_produces_scoped_purge():
+    from quantester.data.streaming import StreamingDataHandler
+
+    idx = pd.bdate_range("2024-01-02", periods=2, tz="UTC")
+    df = pd.DataFrame(
+        {"open": 100.0, "high": 100.0, "low": 100.0, "close": 100.0,
+         "volume": 1e6},
+        index=idx,
+    )
+    handler = StreamingDataHandler({"AAA": df})
+    handler.prime_data()
+    ts, _ = handler.advance()
+    handler.set_phase("close", ts)
+    portfolio = PortfolioManager(handler, 100_000.0)
+    portfolio.update_from_fill(FillEvent(ts, "AAA", 100, BUY, 100.0, 0.0, 0.0))
+
+    queue = _Queue()
+    portfolio.update_from_signal(
+        SignalEvent(ts, "AAA", EXIT, delay=1, stop_price=95.0,
+                    cancel_orders=True, cancel_types=("STOP",)),
+        queue,
+    )
+    cancels = [o for o in queue if o.order_type == CANCEL_ORDER]
+    stops = [o for o in queue if o.order_type == STOP_ORDER]
+    assert len(cancels) == 1 and cancels[0].purge_types == frozenset({"STOP"})
+    assert len(stops) == 1  # replacement stop enqueued after the purge
 
 
 # ------------------------------------------------------------ cash yield

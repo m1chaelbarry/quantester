@@ -19,6 +19,7 @@ from ..events import (
     MOC_ORDER,
     OPEN,
     SELL,
+    STOP_ORDER,
     OrderEvent,
 )
 from .base import Portfolio
@@ -134,7 +135,9 @@ class PortfolioManager(Portfolio):
         if getattr(signal, "cancel_orders", False):
             # Book purge requested (e.g. tranche ladders on EXIT): resting
             # orders must not survive the exit and re-enter on their own. The
-            # purge is synchronous on the execution side.
+            # purge is synchronous on the execution side. A signal may scope
+            # the purge to given order types (cancel_types) — e.g. replacing
+            # a protective stop without killing a resting entry ladder.
             events_queue.put(
                 OrderEvent(
                     timestamp=signal.timestamp,
@@ -143,6 +146,7 @@ class PortfolioManager(Portfolio):
                     quantity=0.0,
                     direction=BUY,  # placeholder; unused by the ledger purge
                     earliest_fill_time=signal.timestamp,
+                    purge_types=getattr(signal, "cancel_types", None),
                 )
             )
         ref_price = self._reference_price(signal)
@@ -175,6 +179,11 @@ class PortfolioManager(Portfolio):
             order_type = MOC_ORDER
         elif signal.limit_price is not None:
             order_type = LIMIT_ORDER
+        elif getattr(signal, "stop_price", None) is not None:
+            # Resting stop (synthesis §5.5): the position delta rests on the
+            # ledger and fills on a later bar's touch — an EXIT with
+            # stop_price is a protective stop sized to the full open position.
+            order_type = STOP_ORDER
         else:
             order_type = MARKET_ORDER
         events_queue.put(
@@ -185,6 +194,7 @@ class PortfolioManager(Portfolio):
                 quantity=abs(delta),
                 direction=BUY if delta > 0 else SELL,
                 earliest_fill_time=fill_time,
+                stop_price=getattr(signal, "stop_price", None),
                 limit_price=signal.limit_price,
             )
         )

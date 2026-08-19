@@ -40,14 +40,18 @@ Mathematical model (all levels in price terms, computed from closes):
   otherwise a runaway market strands the capital at a dead anchor forever).
 - Mean-reversion exit: once any tranche is filled, close all tranches (market,
   next bar's open) when close_t >= SMA_5(t).
-- Hard stop at P_peak - 5.0 * ATR_14. For OHLC backtests the bar's LOW
+- Hard stop at P_peak - 5.0 * ATR_14. Default execution: the bar's LOW
   touching the latched stop is detected at close and the exit is delay=1 at
   the **next bar's open** (not same-bar MOC: observing the low and filling
   that bar's close is not a live-tradable path without an intrabar trigger
   event). Gap risk through the stop is honored on the next open
-  (Cross-Ref-2 section 4.2). The 5x ATR width follows Ehlers' catastrophic-
-  stop-only warning; Chan's stop-loss fallacy motivates keeping the SMA_5
-  reversion exit stop-free.
+  (Cross-Ref-2 section 4.2). Opt-in ``resting_stops=True`` (synthesis §5.5):
+  once the first tranche fills, the stop rests on the execution ledger as a
+  STOP order sized to the open position (re-placed via a stops-only scoped
+  cancel as more tranches fill), so the touch bar itself fills at
+  min(stop, open) — one bar earlier, at the stop level. The 5x ATR width
+  follows Ehlers' catastrophic-stop-only warning; Chan's stop-loss fallacy
+  motivates keeping the SMA_5 reversion exit stop-free.
 
 Execution mechanics under the temporal firewall (delay=1):
 
@@ -85,7 +89,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from ..events import EXIT, LONG, OPEN, SignalEvent
+from ..events import EXIT, LONG, OPEN, STOP_ORDER, SignalEvent
 from ..indicators import atr as wilder_atr
 from .base import Strategy
 
@@ -102,7 +106,8 @@ class TranchePullbackStrategy(Strategy):
                  atr_spacing: float = 1.5,
                  tranche_fractions: tuple = (0.25, 0.35, 0.40),
                  exit_window: int = 5, stop_atr_mult: float = 5.0,
-                 reanchor_every: int = 1, cooldown_bars: int = 0):
+                 reanchor_every: int = 1, cooldown_bars: int = 0,
+                 resting_stops: bool = False):
         if not tranche_fractions or any(f <= 0 for f in tranche_fractions):
             raise ValueError("tranche_fractions must be positive")
         if abs(sum(tranche_fractions) - 1.0) > 1e-9:
@@ -131,6 +136,12 @@ class TranchePullbackStrategy(Strategy):
         # at 0 (next bar = next day). On intraday ports set to bars-per-day - 1
         # so a same-day stop/exit cannot immediately re-enter.
         self.cooldown_bars = int(cooldown_bars)
+        # Opt-in (synthesis §5.5): once any tranche is filled, rest the
+        # catastrophic stop on the execution ledger (sized to the open
+        # position, re-placed via a stops-only scoped cancel as more tranches
+        # fill) instead of observing the touch at close and exiting delay=1.
+        # Ladder entries stay resting delay-1 LIMITs either way.
+        self.resting_stops = bool(resting_stops)
         self.delay = 1  # signals at close T, orders live from bar T+1
 
         self._history = max(
@@ -146,6 +157,7 @@ class TranchePullbackStrategy(Strategy):
         self._latched_at = None
         self._bars_since_anchor = 0
         self._cooldown_remaining = 0
+        self._stop_filled_count = 0  # tranche fills covered by the live stop
 
     # ------------------------------------------------------------- state I/O
 
@@ -194,6 +206,7 @@ class TranchePullbackStrategy(Strategy):
         self._filled = []
         self._latched_at = None
         self._bars_since_anchor = 0
+        self._stop_filled_count = 0
         # _cooldown_remaining is intentionally preserved across reset
 
     def _mark_fills(self, timestamp, low: float):
@@ -247,11 +260,24 @@ class TranchePullbackStrategy(Strategy):
         if any(self._filled):
             # Frozen: latched levels govern the remaining tranches, the stop
             # and the exit until the position is completely closed.
+            stop_live = self.resting_stops and self._stop_filled_count > 0
             if float(bar["low"]) <= self._stop:
-                # Stop touch observed at close → fill next open (delay=1).
-                self._emit_exit(event, events_queue)
+                if stop_live:
+                    # The resting stop fired at THIS close (stop tests run
+                    # before strategies): mirror the exit — purge the ladder
+                    # and flatten any tranche that filled after the stop was
+                    # sized (its fill drained before this signal).
+                    self._emit_exit(event, events_queue)
+                else:
+                    # Legacy mode, or a touch on the first-fill bar before any
+                    # stop rested: touch observed at close → next open (delay=1).
+                    self._emit_exit(event, events_queue)
             elif close_t >= sma_exit:
                 self._emit_exit(event, events_queue)  # mean reversion to SMA_5
+            elif self.resting_stops and sum(self._filled) > self._stop_filled_count:
+                # Fills grew: (re)place the stop so its quantity tracks the
+                # open position; a scoped cancel spares the resting ladder.
+                self._rest_stop(event, events_queue)
             return
 
         # Hunting: nothing filled yet. Regime loss pulls the ladder (a resting
@@ -274,6 +300,21 @@ class TranchePullbackStrategy(Strategy):
         )
         self._state = EXITING
         self._cooldown_remaining = self.cooldown_bars
+
+    def _rest_stop(self, event, events_queue):
+        """(Re)place the catastrophic stop as a resting STOP order sized (at
+        signal time) to the full open position. When a stop is already live,
+        a stops-only scoped cancel replaces it so the unfilled tranche ladder
+        keeps resting. Eligible from the next bar; fills at min(stop, open)
+        on the touch bar (gap-through honored, never the guaranteed stop)."""
+        replacing = self._stop_filled_count > 0
+        events_queue.put(
+            SignalEvent(event.timestamp, self.symbol, EXIT, strength=1.0,
+                        delay=self.delay, stop_price=self._stop,
+                        cancel_orders=replacing,
+                        cancel_types=(STOP_ORDER,) if replacing else None)
+        )
+        self._stop_filled_count = sum(self._filled)
 
     def vectorized_signals(self, data: dict):
         # The latched state machine (path-dependent levels + tranche fills) has

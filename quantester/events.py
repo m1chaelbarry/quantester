@@ -83,10 +83,13 @@ class SignalEvent(Event):
     cancel_orders: bool = False
     stop_distance: Optional[float] = None
     hedge_ratio: Optional[float] = None
+    stop_price: Optional[float] = None
+    cancel_types: Optional[tuple] = None
 
     def __init__(self, timestamp, symbol, signal_type, strength=1.0, delay=1,
                  fill_at=OPEN, limit_price=None, cancel_orders=False,
-                 stop_distance=None, hedge_ratio=None):
+                 stop_distance=None, hedge_ratio=None, stop_price=None,
+                 cancel_types=None):
         super().__init__(SIGNAL, timestamp)
         if signal_type not in (LONG, SHORT, EXIT):
             raise ValueError(
@@ -108,6 +111,30 @@ class SignalEvent(Event):
             raise ValueError(
                 f"fill_at must be 'open' or 'close'; got {fill_at!r}."
             )
+        if stop_price is not None and limit_price is not None:
+            raise ValueError(
+                "stop_price and limit_price are mutually exclusive on one "
+                "signal (a stop and a limit reference contradict)."
+            )
+        if stop_price is not None and fill_at in (CLOSE, "close"):
+            raise ValueError(
+                "stop_price with fill_at='close' is contradictory: a resting "
+                "stop fills on a later bar's touch, not this bar's close "
+                "auction."
+            )
+        if cancel_types is not None:
+            if not cancel_orders:
+                raise ValueError(
+                    "cancel_types requires cancel_orders=True (the scope "
+                    "qualifies the purge; it does not request it)."
+                )
+            valid = {MARKET_ORDER, STOP_ORDER, LIMIT_ORDER, MOC_ORDER}
+            bad = set(cancel_types) - valid
+            if bad:
+                raise ValueError(
+                    f"cancel_types entries must be order types {sorted(valid)}; "
+                    f"got {sorted(bad)}."
+                )
         self.symbol = symbol
         self.signal_type = signal_type
         self.strength = strength
@@ -126,6 +153,15 @@ class SignalEvent(Event):
         # spread; consumed by HedgeRatioSizer as q_X = -beta * q_Y. Inert
         # metadata for every other sizer.
         self.hedge_ratio = hedge_ratio
+        # When set, the portfolio converts the position delta into a resting
+        # STOP order at this price (e.g. an EXIT resting a protective stop
+        # sized to the full open position). Gap-through fills at the next
+        # available price, never the guaranteed stop (engine invariant).
+        self.stop_price = stop_price
+        # Optional scope for cancel_orders: a tuple of order types to purge
+        # (e.g. (STOP_ORDER,) to replace a protective stop without killing a
+        # resting entry ladder). None purges every pending order.
+        self.cancel_types = tuple(cancel_types) if cancel_types is not None else None
 
 
 @dataclass
@@ -144,9 +180,11 @@ class OrderEvent(Event):
     earliest_fill_time: pd.Timestamp
     stop_price: Optional[float] = None
     limit_price: Optional[float] = None
+    purge_types: Optional[frozenset] = None
 
     def __init__(self, timestamp, symbol, order_type, quantity, direction,
-                 earliest_fill_time, stop_price=None, limit_price=None):
+                 earliest_fill_time, stop_price=None, limit_price=None,
+                 purge_types=None):
         super().__init__(ORDER, timestamp)
         self.symbol = symbol
         self.order_type = order_type
@@ -155,6 +193,8 @@ class OrderEvent(Event):
         self.earliest_fill_time = earliest_fill_time
         self.stop_price = stop_price
         self.limit_price = limit_price
+        # CANCEL only: restrict the purge to these order types (None = all).
+        self.purge_types = frozenset(purge_types) if purge_types is not None else None
 
 
 @dataclass
