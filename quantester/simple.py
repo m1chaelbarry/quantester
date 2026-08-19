@@ -377,6 +377,7 @@ def run_backtest(
     costs: CostModel | None = None,
     strategy_kwargs: dict | None = None,
     truncate_last: int | None = None,
+    allow_same_print_fills: bool = False,
     **kwargs,
 ) -> BacktestResult:
     """Run a full event-driven backtest with safe defaults.
@@ -408,6 +409,10 @@ def run_backtest(
         Bare kwargs like ``fast=10`` are also accepted and merged here.
     truncate_last
         Drop the last N bars before running (used by look-ahead checks).
+    allow_same_print_fills
+        Opt-in for delay-0 strategies (fill at the print just observed).
+        Default False: same-print fills are unphysical without latency
+        modeling (Harris; ruling D4).
     """
     if capital <= 0:
         raise ValueError(f"capital must be positive (starting cash); got {capital!r}")
@@ -434,7 +439,10 @@ def run_backtest(
         sizer=sizer if sizer is not None else PercentEquitySizer(equity_pct),
     )
     execution = SimulatedExecutionHandler(costs if costs is not None else CostModel())
-    BacktestEngine(handler, built, portfolio, execution).run_backtest()
+    BacktestEngine(
+        handler, built, portfolio, execution,
+        allow_same_print_fills=allow_same_print_fills,
+    ).run_backtest()
     equity = portfolio.equity_curve
     stats = summarize(equity) if len(equity) else {
         "total_return": 0.0,

@@ -60,6 +60,27 @@ def test_run_backtest_missing_symbol(aaa):
         run_backtest(aaa, MovingAverageCrossStrategy, fast=5, slow=20)
 
 
+def test_run_backtest_delay0_needs_same_print_opt_in(aaa):
+    """D4: the facade forwards allow_same_print_fills to the engine."""
+    from quantester.strategy.base import Strategy
+
+    class Delay0Strategy(Strategy):
+        delay = 0
+
+        def __init__(self, data_handler):
+            self.data_handler = data_handler
+
+        def calculate_signals(self, event, events_queue):
+            pass  # never trades; the gate fires before signals matter
+
+    with pytest.raises(ValueError, match="allow_same_print_fills"):
+        run_backtest(aaa, Delay0Strategy, symbol="AAA")
+    result = run_backtest(
+        aaa, Delay0Strategy, symbol="AAA", allow_same_print_fills=True
+    )
+    assert len(result.equity) > 0
+
+
 def test_run_backtest_bad_equity_pct(aaa):
     with pytest.raises(ValueError, match="equity_pct"):
         run_backtest(

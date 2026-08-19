@@ -37,6 +37,16 @@ def _open_visible_bars(bars: dict) -> dict:
     return out
 
 
+def _same_print_fill_error(what: str) -> ValueError:
+    return ValueError(
+        f"{what} requests delay=0: a fill at the same print the strategy just "
+        "observed is unphysical without explicit latency modeling (Harris, "
+        "Trading and Exchanges; ruling D4). The temporal-firewall delay-0 "
+        "path stays available behind an explicit opt-in: pass "
+        "allow_same_print_fills=True to BacktestEngine."
+    )
+
+
 def _require_callable(obj, name: str, role: str) -> None:
     if not hasattr(obj, name) or not callable(getattr(obj, name)):
         raise TypeError(
@@ -48,7 +58,16 @@ def _require_callable(obj, name: str, role: str) -> None:
 
 
 class BacktestEngine:
-    def __init__(self, data_handler, strategies, portfolio, execution_handler):
+    """Centralized synchronous event loop.
+
+    ``allow_same_print_fills`` (default False, ruling D4): delay-0 strategies
+    fill at the same print they just observed, which is unphysical without
+    latency modeling. Refused unless this flag is True; the intra-bar guard
+    still applies when opted in.
+    """
+
+    def __init__(self, data_handler, strategies, portfolio, execution_handler,
+                 allow_same_print_fills: bool = False):
         if data_handler is None:
             raise TypeError("data_handler is required (e.g. HistoricCSVDataHandler).")
         if portfolio is None:
@@ -77,6 +96,13 @@ class BacktestEngine:
                     f"strategies[{i}] ({type(strategy).__name__}).delay must be "
                     f"an integer >= 0; got {delay!r}."
                 )
+        self.allow_same_print_fills = bool(allow_same_print_fills)
+        if not self.allow_same_print_fills:
+            for i, strategy in enumerate(strategies):
+                if getattr(strategy, "delay", 1) == 0:
+                    raise _same_print_fill_error(
+                        f"strategies[{i}] ({type(strategy).__name__})"
+                    )
         self.events = queue.Queue()
         self.data_handler = data_handler
         self.strategies = list(strategies)
@@ -140,6 +166,10 @@ class BacktestEngine:
                             self._calculate_signals(strategy, event)
 
             elif event.type == SIGNAL:
+                if event.delay == 0 and not self.allow_same_print_fills:
+                    raise _same_print_fill_error(
+                        f"SignalEvent({event.symbol} {event.signal_type})"
+                    )
                 self.portfolio.update_from_signal(event, self.events)
 
             elif event.type == ORDER:
