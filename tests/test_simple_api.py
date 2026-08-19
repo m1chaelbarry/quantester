@@ -67,7 +67,7 @@ def test_run_backtest_delay0_needs_same_print_opt_in(aaa):
     class Delay0Strategy(Strategy):
         delay = 0
 
-        def __init__(self, data_handler):
+        def __init__(self, data_handler, **_ignored):
             self.data_handler = data_handler
 
         def calculate_signals(self, event, events_queue):
