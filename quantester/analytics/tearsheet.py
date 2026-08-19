@@ -21,7 +21,7 @@ def generate_tearsheet(equity: pd.Series, path, title: str = "Quantester Tearshe
         stats.update(extra_stats)
 
     dd = performance.drawdown_series(equity)
-    rets = performance.log_returns(equity)
+    rets = performance.simple_returns(equity)
 
     fig, axes = plt.subplots(3, 1, figsize=(11, 9), sharex=False,
                              gridspec_kw={"height_ratios": [3, 1.5, 1.5]})
@@ -37,7 +37,7 @@ def generate_tearsheet(equity: pd.Series, path, title: str = "Quantester Tearshe
 
     axes[2].hist(rets.values, bins=50, alpha=0.7)
     axes[2].set_ylabel("Frequency")
-    axes[2].set_xlabel("Log return")
+    axes[2].set_xlabel("Simple return")
     axes[2].grid(alpha=0.3)
 
     text = "\n".join(

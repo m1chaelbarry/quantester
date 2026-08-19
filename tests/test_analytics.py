@@ -26,12 +26,55 @@ def _equity_from_log_returns(log_rets, start=100.0):
     return pd.Series(start * np.exp(np.concatenate([[0.0], np.cumsum(log_rets)])), index=idx)
 
 
+def _equity_from_simple_returns(simple_rets, start=100.0):
+    idx = pd.bdate_range("2024-01-01", periods=len(simple_rets) + 1)
+    return pd.Series(
+        start * np.cumprod(np.concatenate([[1.0], 1.0 + np.asarray(simple_rets)])),
+        index=idx,
+    )
+
+
 def test_sharpe_manual_annualization():
-    log_rets = np.tile([0.002, -0.001], 50)
-    equity = _equity_from_log_returns(log_rets)
-    rets = pd.Series(log_rets)
+    """D1: the tearsheet Sharpe is computed on SIMPLE returns (Carver cost
+    drag stays linear in Sharpe units); log returns stay available but are
+    not the tearsheet default."""
+    simple = np.tile([0.002, -0.001], 50)
+    equity = _equity_from_simple_returns(simple)
+    rets = pd.Series(simple)
     expected = (rets.mean() / rets.std(ddof=1)) * np.sqrt(252)
-    assert annualized_sharpe(equity) == pytest.approx(float(expected), rel=1e-9)
+    assert annualized_sharpe(equity, periods_per_year=252) == pytest.approx(
+        float(expected), rel=1e-9
+    )
+
+
+def test_sharpe_simple_not_log_on_large_moves():
+    """A path where simple and log SR disagree proves the tearsheet moved."""
+    simple = np.array([0.25, -0.18] * 40)
+    equity = _equity_from_simple_returns(simple)
+    simple_sr = float(pd.Series(simple).mean() / pd.Series(simple).std(ddof=1)
+                      * np.sqrt(252))
+    log_sr = float(pd.Series(np.log1p(simple)).mean()
+                   / pd.Series(np.log1p(simple)).std(ddof=1) * np.sqrt(252))
+    assert abs(simple_sr - log_sr) > 0.01 * abs(log_sr)  # they really differ
+    assert annualized_sharpe(equity, periods_per_year=252) == pytest.approx(
+        simple_sr, rel=1e-9
+    )
+
+
+def test_auto_register_stores_simple_moments():
+    """D1: registry moments feeding DSR are simple-return moments."""
+    from quantester.analytics.trials_registry import auto_register_from_equity
+
+    simple = np.array([0.05, -0.03, 0.02, -0.01] * 25)
+    equity = _equity_from_simple_returns(simple, start=100_000.0)
+    registry = TrialsRegistry()
+    auto_register_from_equity(registry, equity, strategy_id="t", params={})
+    best = registry.best_trial()
+    assert best["sharpe"] == pytest.approx(annualized_sharpe(equity), rel=1e-12)
+    assert best["mean"] == pytest.approx(float(np.mean(simple)), rel=1e-9)
+    # Not the log mean (they differ materially at 5% moves).
+    assert best["mean"] != pytest.approx(float(np.log1p(simple).mean()), rel=1e-3)
+    registry.close()
 
 
 def test_max_drawdown_known_path():

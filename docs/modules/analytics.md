@@ -12,8 +12,9 @@ the portfolio recorded. Nothing in this package is wired into the event loop.
 
 | Function | Returns |
 | --- | --- |
-| `log_returns(equity)` | Daily log returns. |
-| `annualized_sharpe(equity, risk_free_daily=0.0, periods_per_year=252)` | `(μ_daily − Rf)/σ_daily × √periods_per_year`. |
+| `log_returns(equity)` | Log returns (Masters MCPT/resampling exception path — not the tearsheet default). |
+| `simple_returns(equity)` | Simple returns `E_t/E_{t−1} − 1` — the canonical tearsheet path (D1). |
+| `annualized_sharpe(equity, risk_free_daily=0.0, periods_per_year=252)` | **Simple-return** Sharpe: `(μ_r − Rf)/σ_r × √periods_per_year` (D1; Carver drag stays linear in Sharpe units). |
 | `max_drawdown(equity)` | Dict: `max_drawdown` (worst peak-to-trough, negative), `duration` (calendar days to recover the high-watermark), `peak`, `trough`. |
 | `drawdown_series(equity)` | Underwater series `equity/HWM − 1` (for plotting). |
 | `calmar_ratio(equity, periods_per_year=252)` | Annualized return / \|max drawdown\|. |
@@ -54,7 +55,7 @@ stats = generate_tearsheet(
 )
 ```
 
-Renders a PNG — equity curve, underwater (drawdown) plot, log-return
+Renders a PNG — equity curve, underwater (drawdown) plot, simple-return
 histogram, and a monospace stats box — and returns the summary dict.
 Matplotlib runs headless (`Agg`), so this works on servers and CI.
 

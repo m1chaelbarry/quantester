@@ -1,6 +1,10 @@
 """Performance analytics with complete mathematical rigor (Report 1 section 2.5).
 
-- Annualized Sharpe from log returns: SR = (mu_daily - Rf) / sigma_daily * sqrt(252)
+- Annualized Sharpe from SIMPLE returns (notebook D1, ruling ticket 05):
+  SR = (mean(r) - Rf) / std(r) * sqrt(periods_per_year) with
+  r_t = E_t/E_{t-1} - 1, so Carver cost drag stays linear in Sharpe units.
+  ``log_returns`` remains available for Masters-style IID resampling
+  (documented MCPT exception), but it is not the tearsheet default.
 - Max drawdown and duration: continuous peak-to-trough capital decay + recovery time
 - Calmar ratio: annualized return / |max drawdown|
 - Carver transaction-cost drag (notebook-verified): drag in SR units =
@@ -18,19 +22,29 @@ SPEED_LIMIT_SR = 0.08  # Carver's annual cost-drag speed limit for allocators
 
 
 def log_returns(equity: pd.Series) -> pd.Series:
+    """Log returns — Masters MCPT/resampling exception path, NOT the tearsheet
+    default (D1: the canonical tearsheet Sharpe is simple-return based)."""
     equity = equity.dropna()
     return np.log(equity / equity.shift(1)).dropna()
 
 
+def simple_returns(equity: pd.Series) -> pd.Series:
+    """Simple returns ``E_t/E_{t-1} - 1`` — the canonical tearsheet path (D1)."""
+    equity = equity.dropna()
+    return equity.pct_change().dropna()
+
+
 def annualized_sharpe(equity: pd.Series, risk_free_daily: float = 0.0,
                       periods_per_year: float = TRADING_DAYS) -> float:
-    """Log-return Sharpe annualized by ``sqrt(periods_per_year)``.
+    """Simple-return Sharpe annualized by ``sqrt(periods_per_year)`` (D1,
+    notebook-verified: Carver *Systematic Trading* ch. 12/15 — cost drag is
+    linear in simple-return Sharpe units).
 
     ``periods_per_year`` is the bar calendar's explicit annualization: 252 for
     US equity dailies (default), ~1638 for NYSE hourly, 365/8760 for 24/7
     crypto daily/hourly. It is never inferred silently (synthesis §1.2/§4.2).
     """
-    rets = log_returns(equity)
+    rets = simple_returns(equity)
     if len(rets) < 2 or rets.std() == 0:
         return 0.0
     return float(
