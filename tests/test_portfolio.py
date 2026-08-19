@@ -366,6 +366,49 @@ def test_breaker_threshold_and_rollover_reset():
     assert breaker.triggered_count == 2
 
 
+def test_breaker_rolls_on_session_close_not_utc_midnight():
+    """D11 (ticket 27): the breaker's day boundary is the configured session
+    roll (default 16:00 America/New_York), never a naive UTC date change."""
+    breaker = DailyDrawdownBreaker()
+    # 14:00 UTC = 09:00 ET (before the 16:00 roll): session of Jan 2.
+    t0 = pd.Timestamp("2024-01-02 14:00", tz="UTC")
+    assert not breaker.update(t0, 100_000.0)  # seeds the baseline
+    # 23:00 UTC = 18:00 ET Jan 2 (after the roll): session Jan 3 — baseline
+    # carries 100k; a 5% drop trips the 4.5% breaker.
+    t1 = pd.Timestamp("2024-01-02 23:00", tz="UTC")
+    assert breaker.update(t1, 95_000.0)
+    assert breaker.halted
+    # 01:00 UTC Jan 3 = 20:00 ET Jan 2: SAME NY session as t1. The UTC date
+    # change at 00:00 must NOT reset the halt or the baseline.
+    t2 = pd.Timestamp("2024-01-03 01:00", tz="UTC")
+    assert not breaker.update(t2, 94_000.0)
+    assert breaker.halted  # no midnight reset
+    # 21:30 UTC = 16:30 ET Jan 3 (after the roll): new session baseline; the
+    # halt clears and the baseline carries the last valuation (94k).
+    t3 = pd.Timestamp("2024-01-03 21:30", tz="UTC")
+    assert not breaker.update(t3, 94_000.0)
+    assert not breaker.halted
+    # A fresh 4.5% slide off the carried 94k re-trips in the new session.
+    assert breaker.update(t3, 89_700.0)
+    assert breaker.triggered_count == 2
+
+
+def test_breaker_custom_session_roll():
+    """A crypto-style midnight-UTC session roll keeps date-change behavior."""
+    import datetime as _dt
+
+    breaker = DailyDrawdownBreaker(
+        day_roll_time=_dt.time(0, 0), tz="UTC",
+    )
+    d1 = pd.Timestamp("2024-01-02 12:00", tz="UTC")
+    d2 = pd.Timestamp("2024-01-03 12:00", tz="UTC")
+    assert not breaker.update(d1, 100_000.0)
+    assert breaker.update(d1, 95_000.0)  # trips same-session
+    assert breaker.halted
+    assert not breaker.update(d2, 94_000.0)  # rolled at 00:00 UTC: halt clears
+    assert not breaker.halted
+
+
 def test_breaker_liquidates_cancels_and_blocks_entries():
     from quantester.data.streaming import StreamingDataHandler
 

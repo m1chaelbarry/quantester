@@ -117,17 +117,23 @@ Tracks `leverage = gross_exposure / equity` (∞ when equity ≤ 0). On a breach
 orders shrinking **every** position by `liquidation_fraction`, fillable at the
 next bar's open.
 
-### `DailyDrawdownBreaker(max_intraday_dd=0.045)`
+### `DailyDrawdownBreaker(max_intraday_dd=0.045, day_roll_time=time(16, 0), tz="America/New_York")`
 
-Account-level circuit breaker against the **daily opening balance** (the
-prior trading day's last valuation — the exchange-rollover carry). When
+Account-level circuit breaker against the **session opening balance** (the
+prior session's last valuation — the exchange-rollover carry). When
 close-marked equity falls `≥ max_intraday_dd` below it, the portfolio:
 
 1. cancels every resting order across the book (`CANCEL`),
 2. market-liquidates all positions at the next bar's open (retried each open
    until filled), and
-3. suspends **all** signal flow until the next trading-day rollover resets
-   the halt.
+3. suspends **all** signal flow until the next session rollover resets the
+   halt.
+
+The session boundary is `day_roll_time` in `tz` (ruling D11 — Harris
+session-close, not a naive UTC-midnight date change that mis-rolls 24/7
+crypto/FX). Daily bars stamped 00:00 UTC map to their own date's session, so
+daily behavior is unchanged. A full exchange holiday calendar is out of
+scope; `day_roll_time` + `tz` is the first-wave substitute.
 
 0.045 provides a 0.5% cushion under the 5% daily-loss limit common in
 proprietary evaluations. Signals emitted by a halted strategy are dropped
