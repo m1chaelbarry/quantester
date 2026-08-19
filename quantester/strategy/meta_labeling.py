@@ -8,8 +8,9 @@ precision rises at the cost of recall.
 Labels come from the triple-barrier method: y=1 if the primary signal was
 correct (take-profit barrier touched first on the high/low path / positive
 realization at the vertical barrier), y=0 otherwise. Same-bar TP and SL
-touches label the stop. Close-only callers omit high/low and recover the
-legacy path.
+touches label the stop. When OHLC high/low exist, the high/low path is the
+DEFAULT (ruling D12, ticket 28); ``path="close"`` is the explicit close-only
+opt-out.
 
 The z-score size transform m = 2*Phi(z) - 1 (AFML ch.10) was NOT covered by the
 user's notebook; it is offered as an option and flagged as such.
@@ -25,10 +26,12 @@ from ..events import SignalEvent
 from .base import Strategy
 
 
-def triple_barrier_labels(close: pd.Series, events: pd.DataFrame,
+def triple_barrier_labels(close: pd.Series | None, events: pd.DataFrame,
                           tp_pct: float, sl_pct: float, max_holding: int,
                           high: pd.Series | None = None,
-                          low: pd.Series | None = None) -> pd.Series:
+                          low: pd.Series | None = None, *,
+                          path: str = "auto",
+                          ohlc: pd.DataFrame | None = None) -> pd.Series:
     """Binary meta-labels for primary-model events.
 
     events: DataFrame with columns [t0 (entry timestamp), side (+1/-1)].
@@ -37,16 +40,34 @@ def triple_barrier_labels(close: pd.Series, events: pd.DataFrame,
 
     First touch walks the intra-bar high/low path (AFML ch. 3): long TP if
     high ≥ tp, long SL if low ≤ sl; short is the opposite. When both barriers
-    are touched on the same bar, the label is the stop (y=0). ``high``/``low``
-    default to ``close`` so existing close-only callers keep their labels.
-    The vertical-barrier terminal still uses close.
+    are touched on the same bar, the label is the stop (y=0). The
+    vertical-barrier terminal still uses close.
 
-    Notebook-verified: AFML ch. 3 triple-barrier intent (close-path labels).
-    High/low first-touch is AFML ch. 3 path dependence — not covered by a
-    notebook page beyond that intent; implemented from AFML ch. 3.
+    Path selection (ruling D12): ``path="auto"`` (default) labels on
+    high/low whenever both are available — via the ``high``/``low`` series
+    or an ``ohlc`` DataFrame (whose close/high/low replace the positional
+    ``close``). ``path="close"`` forces the legacy close-only labels even
+    when high/low are passed. Callers holding only closes keep their labels
+    unchanged (high/low fall back to close).
+
+    Notebook-verified: AFML ch. 3 triple-barrier intent. High/low first-touch
+    is AFML ch. 3 path dependence — previously "not covered beyond intent";
+    the default flip itself is notebook ruling D12.
     """
-    high = close if high is None else high
-    low = close if low is None else low
+    if path not in ("auto", "close"):
+        raise ValueError(f"path must be 'auto' or 'close'; got {path!r}")
+    if ohlc is not None:
+        close = ohlc["close"]
+        if "high" in ohlc.columns and "low" in ohlc.columns:
+            high, low = ohlc["high"], ohlc["low"]
+    if close is None:
+        raise TypeError(
+            "triple_barrier_labels needs a close Series (positional) or an "
+            "ohlc DataFrame with a 'close' column."
+        )
+    if path == "close" or high is None or low is None:
+        high = close
+        low = close
     labels = {}
     idx = close.index
     pos_of = {ts: i for i, ts in enumerate(idx)}
@@ -153,16 +174,28 @@ class MetaLabelingStrategy(Strategy):
                 )
             )
 
-    def fit_secondary(self, features: pd.DataFrame, close: pd.Series,
+    def fit_secondary(self, features: pd.DataFrame, bars,
                       events: pd.DataFrame, tp_pct: float, sl_pct: float,
                       max_holding: int, high: pd.Series | None = None,
-                      low: pd.Series | None = None):
-        """Build triple-barrier labels for the primary events and fit the model."""
+                      low: pd.Series | None = None, *, path: str = "auto"):
+        """Build triple-barrier labels for the primary events and fit the model.
+
+        ``bars`` is an OHLC DataFrame (high/low path by default, D12) or a
+        bare close Series (close-only legacy labeling; ``high``/``low``
+        kwargs aligned with it opt into the path). ``path="close"`` forces
+        close-only labels either way.
+        """
         if self.model is None:
             raise ValueError("No secondary model configured.")
-        y = triple_barrier_labels(
-            close, events, tp_pct, sl_pct, max_holding, high=high, low=low,
-        )
+        if isinstance(bars, pd.DataFrame):
+            y = triple_barrier_labels(
+                None, events, tp_pct, sl_pct, max_holding, path=path, ohlc=bars,
+            )
+        else:
+            y = triple_barrier_labels(
+                bars, events, tp_pct, sl_pct, max_holding,
+                high=high, low=low, path=path,
+            )
         self.model.fit(features.loc[y.index], y)
         return y
 
