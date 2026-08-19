@@ -33,6 +33,7 @@ Locked: [`spec.md`](spec.md). Grilling and research tickets on this map are **re
 - [Is point-in-time universe plus delist and CA in the first-wave spec?](issues/16-pit-first-wave.md) — CA/dividend cash in; PIT universe/delist deferred.
 - [Which non-controversial critical defects are must-fix on the spec?](issues/17-noncontroversial-must-fix.md) — #24–#27 shipped; leftovers are D10/D11/D12 tasks; pandas hot-path parked.
 - [What is the ordered implementation spec after the rulings?](issues/18-ordered-implementation-spec.md) — [`spec.md`](spec.md); tasks 19–28.
+- First wave SHIPPED: tasks 19–28 (D1–D12) implemented on branch `cursor/d1-d12-first-wave-06c0` — simple tearsheet Sharpe + measured \(N_T\) + fast-track delegation; `gap_stress` 1.0; delay-0 opt-in gate; integer-bar CPCV embargo; unadjusted Yahoo + CA events; cash-base sizers; session-close breaker; high/low triple-barrier default. Each ticket carries the commit pointer under its `## Answer`.
 
 ## Not yet specified
 

@@ -1,7 +1,7 @@
 # Annualize with measured periods-per-year
 
 Type: task
-Status: open
+Status: resolved
 Part of: [Literature remediation decision map](../map.md)
 
 ## Goal
@@ -38,3 +38,7 @@ Ruling: [What is the canonical periods-per-year and cash day-count policy?](06-p
 
 - Switching Sharpe from log to simple (ticket 19).
 - Fast-track calling `annualized_sharpe` (ticket 23) — but if you touch `FastResult.sharpe`’s 252, leave a `# see ticket 23` comment rather than a private formula.
+
+## Answer
+
+Shipped (commit f603a80). `measured_periods_per_year(index)` = N / span-in-365.25-years (Chan measured frequency; Carver 256 documented as convenience, never a default). `annualized_sharpe` / `calmar_ratio` / `summarize` / `plot_rolling_metrics` default `periods_per_year=None` -> measured on datetime indexes, explicit override wins, `TRADING_DAYS = 252` is the non-datetime fallback. Example call sites dropped their magic 365 constants. Cash yield stays `/365` (untouched).

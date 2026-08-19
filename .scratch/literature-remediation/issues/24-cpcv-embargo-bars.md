@@ -1,7 +1,7 @@
 # Integer B/F-bar CPCV embargo
 
 Type: task
-Status: open
+Status: resolved
 Part of: [Literature remediation decision map](../map.md)
 
 ## Goal
@@ -37,3 +37,7 @@ Ruling: [Is CPCV overlap geometry enough, or must embargo length be lookback/loo
 
 - Rewriting CPCV group combinatorics.
 - Walk-forward / NTEST–EXTRA product (parked).
+
+## Answer
+
+Shipped (commit e49c373). Embargo is integer index positions: `embargo_bars` direct, else `min(lookback, lookahead) - 1` (single-sided: that minus 1), else explicit `pct_embargo` floored to bars; default 0 (the silent 0.01T is gone). Median-dt conversion deleted, so calendar gaps never stretch the window; purge geometry and the `n_paths` binomial identity untouched. Module docstring marks D8 as "not covered by the notebook — implemented from Assessing ch. 1 / TTMTS".

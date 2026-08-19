@@ -1,7 +1,7 @@
 # Forbid delay-0 fills by default
 
 Type: task
-Status: open
+Status: resolved
 Part of: [Literature remediation decision map](../map.md)
 
 ## Goal
@@ -37,3 +37,7 @@ Ruling: [Keep delay-0 as a firewall feature, or require minimum latency?](08-del
 
 - Resting STOP vs EXIT-on-touch (already shipped).
 - Changing `fill_at='close'` MOC for delay>=1.
+
+## Answer
+
+Shipped (commits 5eaf2d4, 4b0aa2b). `BacktestEngine(allow_same_print_fills=False)` refuses delay-0 strategies at construction AND delay-0 SignalEvents at dispatch (Harris latency message); `run_backtest(..., allow_same_print_fills=...)` forwards the flag. The intra-bar guard / `_open_visible_bars` / open-phase matching stay intact behind the opt-in; existing delay-0 tests opt in explicitly.
