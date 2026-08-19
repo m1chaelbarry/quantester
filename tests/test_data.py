@@ -88,6 +88,33 @@ def test_tick_imbalance_bars_structure():
     assert bars["close"].iloc[-1] == pytest.approx(ticks["price"].iloc[-1])
 
 
+def test_synthetic_ohlcv_ito_drift_correction():
+    """GBM fixture must grow at rate mu in PRICE expectation (synthesis §1.11):
+    log-increments average (mu - 0.5*sigma**2)/periods_per_year, so that
+    E[S_T] = s0 * exp(mu * T). The pre-fix drift (mu/ppy) inflates E[S_T] by
+    exp(0.5*sigma**2 * T)."""
+    mu, sigma, ppy = 0.10, 0.50, 252.0
+    df = make_synthetic_ohlcv(n_bars=200_000, mu=mu, sigma=sigma, seed=11)
+    log_rets = np.diff(np.log(df["close"].to_numpy()))
+    expected = (mu - 0.5 * sigma**2) / ppy
+    se = sigma / np.sqrt(ppy * len(log_rets))  # standard error of the mean
+    assert abs(log_rets.mean() - expected) < 4 * se
+    # The pre-fix (no Itô term) drift sits far outside that band.
+    assert abs(log_rets.mean() - mu / ppy) > 4 * se
+
+
+def test_synthetic_ohlcv_periods_per_year_parameter():
+    """periods_per_year scales the GBM discretization explicitly (§1.2)."""
+    sigma = 0.40
+    ppy = 365.0 * 24  # hourly 24/7 calendar
+    df = make_synthetic_ohlcv(n_bars=100_000, mu=0.0, sigma=sigma,
+                              periods_per_year=ppy, seed=5)
+    log_rets = np.diff(np.log(df["close"].to_numpy()))
+    expected_std = sigma / np.sqrt(ppy)
+    se = expected_std / np.sqrt(2.0 * len(log_rets))  # se of the sample std
+    assert abs(log_rets.std(ddof=1) - expected_std) < 5 * se
+
+
 def _trick_inputs(rebalance=True):
     idx = pd.bdate_range("2024-01-01", periods=6, tz="UTC")
     close = pd.DataFrame({"F1": [100, 101, 102, 103, 104, 105],
