@@ -210,20 +210,27 @@ class PairsTradingStrategy(Strategy):
     # ---------------------------------------------------------------- signals
 
     def _emit_transition(self, timestamp: pd.Timestamp, events_queue,
-                         target: int) -> None:
+                         target: int, *, beta: float, price_y: float) -> None:
         """Emit simultaneous, opposite leg signals on a state change only."""
         if target == self._state:
             return
         if target == FLAT:
-            legs = [(self.leg_y, EXIT), (self.leg_x, EXIT)]
+            legs = [(self.leg_y, EXIT, 1.0), (self.leg_x, EXIT, 1.0)]
         elif target == LONG_SPREAD:
-            legs = [(self.leg_y, LONG), (self.leg_x, SHORT)]
+            legs = [(self.leg_y, LONG, 1.0), (self.leg_x, SHORT, abs(beta))]
         else:
-            legs = [(self.leg_y, SHORT), (self.leg_x, LONG)]
-        for symbol, signal_type in legs:
+            legs = [(self.leg_y, SHORT, 1.0), (self.leg_x, LONG, abs(beta))]
+        for symbol, signal_type, ratio in legs:
             events_queue.put(
-                SignalEvent(timestamp, symbol, signal_type,
-                            strength=1.0, delay=self.delay)
+                SignalEvent(
+                    timestamp,
+                    symbol,
+                    signal_type,
+                    strength=1.0,
+                    delay=self.delay,
+                    hedge_ratio=ratio,
+                    hedge_ref_price=price_y,
+                )
             )
         self._state = target
 
@@ -235,9 +242,13 @@ class PairsTradingStrategy(Strategy):
         s = self._update_spread(event.timestamp)
         if s is None:
             return
+        beta = float(self.history_[-1]["beta"])
+        price_y = float(event.bars[self.leg_y]["close"])
         self._emit_transition(
             event.timestamp, events_queue,
             next_spread_state(self._state, s, self.entry_z, self.exit_z),
+            beta=beta,
+            price_y=price_y,
         )
 
     # ------------------------------------------------------- vectorized twin

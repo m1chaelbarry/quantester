@@ -19,6 +19,7 @@ from quantester.events import (
 from quantester.portfolio.portfolio import (
     FixedUnitSizer,
     FractionalRiskSizer,
+    HedgeRatioSizer,
     PercentEquitySizer,
     PortfolioManager,
 )
@@ -108,6 +109,28 @@ def test_sizers():
     assert target == pytest.approx(100_000 * 0.5 * 0.5 / 10.0)
     risk_target = FractionalRiskSizer(0.02)(_Signal(), portfolio, 10.0)
     assert risk_target == pytest.approx(100_000 * 0.02 / 10.0)
+
+
+def test_hedge_ratio_sizer_scales_x_leg_off_y_notional():
+    """q_X = -β q_Y: X uses Y's price, not its own, so the spread is β-hedged."""
+    class _Y:
+        signal_type = LONG
+        strength = 1.0
+        hedge_ratio = 1.0
+        hedge_ref_price = 50.0
+
+    class _X:
+        signal_type = "SHORT"
+        strength = 1.0
+        hedge_ratio = 1.4
+        hedge_ref_price = 50.0
+
+    portfolio = _portfolio()
+    sizer = HedgeRatioSizer(0.5)
+    q_y = sizer(_Y(), portfolio, 50.0)
+    q_x = sizer(_X(), portfolio, 25.0)  # X's own price must not drive size
+    assert q_y == pytest.approx(100_000 * 0.5 / 50.0)  # 1000
+    assert q_x == pytest.approx(-1.4 * q_y)
 
 
 def test_kelly():

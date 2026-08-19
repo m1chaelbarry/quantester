@@ -82,10 +82,14 @@ class SignalEvent(Event):
     limit_price: Optional[float] = None
     cancel_orders: bool = False
     stop_distance: Optional[float] = None
+    hedge_ratio: Optional[float] = None
+    hedge_ref_price: Optional[float] = None
+    stop_price: Optional[float] = None
 
     def __init__(self, timestamp, symbol, signal_type, strength=1.0, delay=1,
                  fill_at=OPEN, limit_price=None, cancel_orders=False,
-                 stop_distance=None):
+                 stop_distance=None, hedge_ratio=None, hedge_ref_price=None,
+                 stop_price=None):
         super().__init__(SIGNAL, timestamp)
         if signal_type not in (LONG, SHORT, EXIT):
             raise ValueError(
@@ -121,6 +125,13 @@ class SignalEvent(Event):
         # Price-unit distance to the protective stop; consumed by
         # FractionalRiskSizer as q = equity * risk_fraction / stop_distance.
         self.stop_distance = stop_distance
+        # Spread hedge: HedgeRatioSizer uses ratio=1 on Y and β on X, with
+        # hedge_ref_price = P_Y so q_X = -β q_Y.
+        self.hedge_ratio = hedge_ratio
+        self.hedge_ref_price = hedge_ref_price
+        # Optional resting STOP_ORDER price; PortfolioManager emits a flatten
+        # stop alongside the entry when this is set (opt-in intra-bar stops).
+        self.stop_price = stop_price
 
 
 @dataclass
