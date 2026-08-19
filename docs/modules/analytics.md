@@ -13,11 +13,17 @@ the portfolio recorded. Nothing in this package is wired into the event loop.
 | Function | Returns |
 | --- | --- |
 | `log_returns(equity)` | Daily log returns. |
-| `annualized_sharpe(equity, risk_free_daily=0.0)` | `(μ_daily − Rf)/σ_daily × √252`. |
+| `annualized_sharpe(equity, risk_free_daily=0.0, periods_per_year=252)` | `(μ_daily − Rf)/σ_daily × √periods_per_year`. |
 | `max_drawdown(equity)` | Dict: `max_drawdown` (worst peak-to-trough, negative), `duration` (calendar days to recover the high-watermark), `peak`, `trough`. |
 | `drawdown_series(equity)` | Underwater series `equity/HWM − 1` (for plotting). |
-| `calmar_ratio(equity)` | Annualized return / \|max drawdown\|. |
-| `summarize(equity, risk_free_daily=0.0)` | One dict with total return, Sharpe, MDD, MDD duration, Calmar — the standard headline block. |
+| `calmar_ratio(equity, periods_per_year=252)` | Annualized return / \|max drawdown\|. |
+| `summarize(equity, risk_free_daily=0.0, periods_per_year=252)` | One dict with total return, Sharpe, MDD, MDD duration, Calmar — the standard headline block. |
+
+`periods_per_year` is the bar calendar's annualization and is always an
+explicit argument — never inferred from the index. 252 suits US equity
+dailies; pass ~1638 for NYSE hourly, 365/8760 for 24/7 crypto daily/hourly.
+(The 252-vs-256-vs-measured policy question stays parked behind the
+literature-decision map; the default merely stops being silent.)
 
 ### Carver cost drag
 

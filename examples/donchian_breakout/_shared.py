@@ -66,9 +66,9 @@ def metrics(
         "label": label,
         "total_return": float(equity.iloc[-1] / equity.iloc[0] - 1.0),
         "cagr": float((equity.iloc[-1] / equity.iloc[0]) ** (1.0 / years) - 1.0),
-        "sharpe": annualized_sharpe(equity, periods=PERIODS),
+        "sharpe": annualized_sharpe(equity, periods_per_year=PERIODS),
         "max_dd": max_drawdown(equity)["max_drawdown"],
-        "calmar": calmar_ratio(equity, periods=PERIODS),
+        "calmar": calmar_ratio(equity, periods_per_year=PERIODS),
     }
     if portfolio is not None:
         row["trades"] = len(portfolio.trades)

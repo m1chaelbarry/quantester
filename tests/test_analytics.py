@@ -52,6 +52,34 @@ def test_calmar_positive_for_growth():
     assert calmar_ratio(equity) > 0
 
 
+def test_annualized_sharpe_periods_per_year_explicit():
+    """Annualization is an explicit caller choice (synthesis §1.2 / §5.7):
+    Sharpe scales by sqrt(periods_per_year)."""
+    equity = _equity_from_log_returns(np.tile([0.002, -0.001], 50))
+    daily = annualized_sharpe(equity)  # default stays the explicit 252
+    hourly = annualized_sharpe(equity, periods_per_year=1638.0)
+    assert hourly == pytest.approx(daily * np.sqrt(1638.0 / 252.0), rel=1e-9)
+
+
+def test_calmar_periods_per_year_explicit():
+    equity = _equity_from_log_returns(np.tile([0.003, -0.001], 60))
+    daily = calmar_ratio(equity)
+    crypto = calmar_ratio(equity, periods_per_year=365.0)
+    assert daily > 0 and crypto > 0 and daily != pytest.approx(crypto)
+
+
+def test_summarize_forwards_periods_per_year():
+    from quantester.analytics.performance import summarize
+
+    equity = _equity_from_log_returns(np.tile([0.002, -0.001], 50))
+    default = summarize(equity)
+    hourly = summarize(equity, periods_per_year=1638.0)
+    assert hourly["sharpe"] == pytest.approx(
+        default["sharpe"] * np.sqrt(1638.0 / 252.0), rel=1e-9
+    )
+    assert hourly["calmar"] != pytest.approx(default["calmar"])
+
+
 def test_carver_drag_and_speed_limit():
     drag = carver_cost_drag_sr(annual_turnover=4.0, standardized_cost_sr=0.01)
     assert drag == pytest.approx(0.04)

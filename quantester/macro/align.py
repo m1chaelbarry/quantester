@@ -18,7 +18,8 @@ def as_daily_reindex(
     ``method=None`` for a left join with NaNs on non-observation days.
 
     ``method='bfill'`` is rejected: pulling a later print onto earlier bars is
-    look-ahead if the aligned series is used as a trading feature.
+    look-ahead when the aligned series feeds a trading feature (3rd-cross-
+    reference synthesis §1.10).
 
     Both sides are normalized to timezone-aware UTC before aligning. This is a
     calendar join only — no quantitative formula to notebook-verify.

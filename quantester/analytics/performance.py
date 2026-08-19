@@ -13,7 +13,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-TRADING_DAYS = 252
+TRADING_DAYS = 252  # explicit default periods-per-year (US equity dailies)
 SPEED_LIMIT_SR = 0.08  # Carver's annual cost-drag speed limit for allocators
 
 
@@ -23,11 +23,19 @@ def log_returns(equity: pd.Series) -> pd.Series:
 
 
 def annualized_sharpe(equity: pd.Series, risk_free_daily: float = 0.0,
-                      periods: int = TRADING_DAYS) -> float:
+                      periods_per_year: float = TRADING_DAYS) -> float:
+    """Log-return Sharpe annualized by ``sqrt(periods_per_year)``.
+
+    ``periods_per_year`` is the bar calendar's explicit annualization: 252 for
+    US equity dailies (default), ~1638 for NYSE hourly, 365/8760 for 24/7
+    crypto daily/hourly. It is never inferred silently (synthesis §1.2/§4.2).
+    """
     rets = log_returns(equity)
     if len(rets) < 2 or rets.std() == 0:
         return 0.0
-    return float((rets.mean() - risk_free_daily) / rets.std() * np.sqrt(periods))
+    return float(
+        (rets.mean() - risk_free_daily) / rets.std() * np.sqrt(periods_per_year)
+    )
 
 
 def max_drawdown(equity: pd.Series) -> dict:
@@ -58,11 +66,13 @@ def drawdown_series(equity: pd.Series) -> pd.Series:
     return equity / equity.cummax() - 1.0
 
 
-def calmar_ratio(equity: pd.Series, periods: int = TRADING_DAYS) -> float:
+def calmar_ratio(equity: pd.Series,
+                 periods_per_year: float = TRADING_DAYS) -> float:
+    """Annualized return / |max drawdown|; years = bars / periods_per_year."""
     equity = equity.dropna()
     if len(equity) < 2:
         return 0.0
-    years = max(len(equity) / periods, 1e-12)
+    years = max(len(equity) / periods_per_year, 1e-12)
     annualized = (float(equity.iloc[-1]) / float(equity.iloc[0])) ** (1.0 / years) - 1.0
     mdd = abs(max_drawdown(equity)["max_drawdown"])
     if mdd == 0:
@@ -84,7 +94,8 @@ def speed_limit_warning(drag_sr: float) -> str | None:
     return None
 
 
-def summarize(equity: pd.Series, risk_free_daily: float = 0.0) -> dict:
+def summarize(equity: pd.Series, risk_free_daily: float = 0.0,
+              periods_per_year: float = TRADING_DAYS) -> dict:
     equity = equity.dropna()
     mdd = max_drawdown(equity)
     total_return = (
@@ -92,8 +103,8 @@ def summarize(equity: pd.Series, risk_free_daily: float = 0.0) -> dict:
     )
     return {
         "total_return": total_return,
-        "sharpe": annualized_sharpe(equity, risk_free_daily),
+        "sharpe": annualized_sharpe(equity, risk_free_daily, periods_per_year),
         "max_drawdown": mdd["max_drawdown"],
         "max_drawdown_duration_days": mdd["duration"],
-        "calmar": calmar_ratio(equity),
+        "calmar": calmar_ratio(equity, periods_per_year),
     }

@@ -131,7 +131,11 @@ def donchian(high: pd.Series, low: pd.Series, window: int = 20,
 
 
 def rolling_volatility(close: pd.Series, window: int = 21,
-                       periods: int = 252) -> pd.Series:
-    """Annualized rolling volatility of log returns."""
+                       periods_per_year: float = 252) -> pd.Series:
+    """Annualized rolling volatility of log returns.
+
+    ``periods_per_year`` is the explicit bar-calendar annualization (252
+    equity dailies by default), never inferred from the index.
+    """
     log_rets = np.log(close / close.shift(1))
-    return log_rets.rolling(window).std(ddof=1) * np.sqrt(periods)
+    return log_rets.rolling(window).std(ddof=1) * np.sqrt(periods_per_year)

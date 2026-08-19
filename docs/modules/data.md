@@ -81,7 +81,10 @@ fx = load_nbp_fx("USD", start="2023-01-01", end="2024-12-31")
 aligned = as_daily_reindex(price_index, fx)  # causal ffill onto bar calendar
 ```
 
-`method='bfill'` raises `ValueError` — pulling a later print onto earlier bars is look-ahead if the series is a trading feature. `method=None` leaves NaNs on non-observation days.
+`as_daily_reindex` accepts only `method="ffill"` (causal) or `None`
+(explicit NaNs on non-observation days). `method="bfill"` raises
+`ValueError`: pulling a later print onto earlier bars is look-ahead when
+the aligned series feeds a trading feature (synthesis §1.10).
 
 Requires `pip install "quantester[data]"`. Optional GUS key:
 `QUANTESTER_GUS_API_KEY` (`X-ClientId`).
@@ -135,6 +138,14 @@ Imbalance bars capture informed-trading bursts: they sample more frequently
 when trade flow is one-sided and less when it is balanced, which tends to
 produce return series closer to iid-normal than clock-time bars.
 
+The threshold estimator follows AFML ch. 2 with **bar-frequency** EWMAs:
+`E₀[T]` is the EWMA of completed bar lengths and the expected imbalance is
+`|EWMA of per-bar mean signed flow (θ_T/T)|`, both with `span` measured in
+bars and fixed at each bar's start. Until `warmup` bars complete the
+threshold is the constant `max(initial_expected_len, 1.0)`, and the
+incomplete trailing subset is flushed as a final bar (both documented
+extras the book leaves unspecified).
+
 ## Writing your own feed
 
 ```python
@@ -150,3 +161,8 @@ class ParquetDataHandler(DataHandler):
 
 Keep the three contract bullets exactly — the temporal firewall, the
 pending-order ledger, and every regression test depend on them.
+
+`source_ohlcv(symbol)` exposes the full loaded frame for research scripts
+and post-run analysis. The engine seals it around every
+`Strategy.calculate_signals` dispatch (`PermissionError`); feeds that expose
+it implement ``_source_ohlcv`` so the base-class seal cannot be bypassed.

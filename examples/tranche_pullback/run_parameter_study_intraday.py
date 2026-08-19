@@ -150,7 +150,7 @@ def _trial_worker(params: dict) -> dict:
             "exit_days": params["exit_days"],
         },
         "full_params": params,
-        "sharpe": annualized_sharpe(equity, periods=_PERIODS),
+        "sharpe": annualized_sharpe(equity, periods_per_year=_PERIODS),
         "sharpe_bar": float(rets.mean() / rets.std()) if rets.std() > 0 else 0.0,
         "cagr": float((equity.iloc[-1] / equity.iloc[0]) ** (1.0 / years) - 1.0),
         "max_dd": max_drawdown(equity)["max_drawdown"],
@@ -174,7 +174,7 @@ def _mc_worker(seed: int) -> dict:
         float(bh.mean() / bh.std() * np.sqrt(_PERIODS)) if bh.std() > 0 else 0.0
     )
     return {
-        "sharpe": annualized_sharpe(equity, periods=_PERIODS),
+        "sharpe": annualized_sharpe(equity, periods_per_year=_PERIODS),
         "cagr": float((equity.iloc[-1] / equity.iloc[0]) ** (1.0 / years) - 1.0),
         "max_dd": max_drawdown(equity)["max_drawdown"],
         "trades": len(portfolio.trades),
@@ -211,7 +211,7 @@ def main():
     print(f"\n-- SPEC (1.5/5.0/5d) on {args.tf}, daily cadence --")
     print(f"  ret {eq.iloc[-1]/eq.iloc[0]-1:+.1%}  "
           f"CAGR {(eq.iloc[-1]/eq.iloc[0])**(1.0/(len(eq)/_PERIODS))-1:+.2%}  "
-          f"sharpe {annualized_sharpe(eq, periods=_PERIODS):+.3f}  "
+          f"sharpe {annualized_sharpe(eq, periods_per_year=_PERIODS):+.3f}  "
           f"maxDD {max_drawdown(eq)['max_drawdown']:+.1%}  "
           f"trades {len(spec_port.trades)}  "
           f"breaker {spec_port.drawdown_breaker.triggered_count}  "

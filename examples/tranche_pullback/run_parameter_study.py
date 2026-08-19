@@ -108,7 +108,7 @@ def _trial_worker(params: dict) -> dict:
     years = len(equity) / PERIODS
     return {
         "params": params,
-        "sharpe365": annualized_sharpe(equity, periods=PERIODS),
+        "sharpe365": annualized_sharpe(equity, periods_per_year=PERIODS),
         "sharpe_daily": float(rets.mean() / rets.std()) if rets.std() > 0 else 0.0,
         "cagr": float((equity.iloc[-1] / equity.iloc[0]) ** (1.0 / years) - 1.0),
         "max_dd": max_drawdown(equity)["max_drawdown"],
@@ -133,7 +133,7 @@ def _mc_worker(seed: int) -> dict:
     )
     return {
         "seed": seed,
-        "sharpe365": annualized_sharpe(equity, periods=PERIODS),
+        "sharpe365": annualized_sharpe(equity, periods_per_year=PERIODS),
         "cagr": float((equity.iloc[-1] / equity.iloc[0]) ** (1.0 / years) - 1.0),
         "max_dd": max_drawdown(equity)["max_drawdown"],
         "total_return": float(equity.iloc[-1] / equity.iloc[0] - 1.0),
