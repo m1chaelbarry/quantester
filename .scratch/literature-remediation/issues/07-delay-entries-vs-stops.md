@@ -1,7 +1,7 @@
 # Are delay-1 market entries and resting intra-bar stops orthogonal policies?
 
 Type: grilling
-Status: open
+Status: resolved
 Part of: [Literature remediation decision map](../map.md)
 
 ## Question
@@ -13,3 +13,15 @@ Synthesis §4.3: delay-1 *entries* are aligned (Ehlers *Cycle Analytics*, Penfol
 Do not collapse “signal delay-1” with “stop delay-1”. Clenow’s no-stop family is [Must the engine require stops, forbid them, or support both families?](11-stops-required-vs-forbidden.md). Delay-0 is [Keep delay-0 as a firewall feature, or require minimum latency?](08-delay-0-policy.md).
 
 Invoke `/grilling` and `/domain-modeling`. Do not answer for the human. Do not write engine code.
+
+## Answer
+
+**Yes — orthogonal.** Delay-1 **market entries** (close \(T\) → open \(T+1\), open-phase H/L/C redacted) stay the default live-replicable path. Resting intra-bar `STOP_ORDER` is a separate ledger policy: fill at the next available price after gap-through, never a guaranteed stop print.
+
+That split is already in the engine (PR #27): `signal.stop_price` / `stop_only`; Donchian stamps the stop on a **delay-1 entry**; tranche freeze uses delay-1. Default Chan/Ehlers path remains delay-1 EXIT-on-touch. No further implementation ticket.
+
+Family choice (require vs forbid vs both) is [Must the engine require stops, forbid them, or support both families?](11-stops-required-vs-forbidden.md). Minimum latency is [Forbid delay-0 fills by default](22-forbid-delay-0-default.md).
+
+## Comments
+
+- 2026-08-19 notebook: entries vs stops are orthogonal; opt-in resting STOP already shipped.
