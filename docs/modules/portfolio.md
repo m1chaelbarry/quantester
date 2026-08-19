@@ -98,7 +98,7 @@ fractions/weights *outside* the event loop (e.g. to calibrate a sizer):
 | `volatility_parity_weights(cov)` | `w_i ∝ 1/σ_i`, normalized — equal risk contribution. |
 | `hpr(trades, f, worst_loss)` | Vince's Holding Period Return: `1 + f·(−Trade_i / WorstLoss)`. |
 | `twr(trades, f, worst_loss)` | Terminal Wealth Relative: Π HPR (0 if any HPR ≤ 0 — ruin). |
-| `optimal_f(trades, worst_loss=None, gap_stress=1.5, f_max=1.0)` | `f* = argmax TWR(f)` over `[0, f_max]`. `worst_loss` defaults to the historical worst loss × `gap_stress` — stressed *below* the nominal stop because stops do not guarantee fills through gaps (and unconstrained optimal-f is catastrophically sensitive to the max-loss estimate). Returns `f_max` when there are no losing trades. |
+| `optimal_f(trades, worst_loss=None, gap_stress=1.0, f_max=1.0)` | `f* = argmax TWR(f)` over `[0, f_max]`. `worst_loss` defaults to the raw historical BiggestLoss (Vince MoMM ch. 1; ruling D3). `gap_stress > 1` is an explicit opt-in stress below the nominal stop — gap-through fills are already enforced by the stop ledger. Returns `f_max` when there are no losing trades. |
 | `kakushadze_effective_returns(expected, linear_costs)` | `E_eff = sign(E)·max(|E| − τ, 0)` — apply to expected returns **before** weight optimization so edges smaller than linear costs are zeroed. |
 
 ## Risk overlays

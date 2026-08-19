@@ -6,10 +6,11 @@
     HPR_i = 1 + f * (-Trade_i / WorstLoss)
     TWR(f) = prod_i HPR_i
     f* = argmax_f TWR(f)
-  WorstLoss is gap-stressed below the nominal stop: stops do not guarantee fills
-  through overnight gaps or limit-down halts (Cross-Ref-2 section 4.2), and
-  unconstrained optimal-f is catastrophically sensitive to exceeding the
-  historical max loss (Cross-Ref section 2.D). Vince's own mitigations:
+  WorstLoss defaults to the raw historical BiggestLoss (D3, ticket 21);
+  ``gap_stress`` > 1 is an explicit opt-in stress. Unconstrained optimal-f is
+  catastrophically sensitive to exceeding the historical max loss (Cross-Ref
+  section 2.D), and gap-through fills are already enforced by the stop
+  ledger (Cross-Ref-2 section 4.2). Vince's own mitigations:
   dilution flattens drawdowns arithmetically but cuts returns geometrically;
   dynamic fractional-f reallocates with equity shifts.
 - Kakushadze effective-return adjustment applied BEFORE weight optimization:
@@ -62,13 +63,17 @@ def twr(trades: np.ndarray, f: float, worst_loss: float) -> float:
     return float(hprs.prod())
 
 
-def optimal_f(trades, worst_loss: float | None = None, gap_stress: float = 1.5,
+def optimal_f(trades, worst_loss: float | None = None, gap_stress: float = 1.0,
               f_max: float = 1.0) -> float:
     """f* = argmax TWR(f) over [0, f_max].
 
-    worst_loss defaults to the historical worst loss multiplied by `gap_stress`
-    (>1 stresses it below the nominal stop for gap-through risk). If there are
-    no losing trades, f_max is returned (no loss-bounded optimum exists).
+    ``worst_loss`` defaults to the raw historical BiggestLoss (``trades.min()``;
+    notebook-verified Vince MoMM ch. 1). ``gap_stress`` > 1 is an explicit
+    opt-in stress below the nominal stop — the earlier 1.5 default silently
+    de-levered away from f* and is not Vince (ruling D3, ticket 21).
+    Gap-through fills remain a stop-ledger invariant; no second realized-gap
+    W series is built here. If there are no losing trades, f_max is returned
+    (no loss-bounded optimum exists).
     """
     trades = np.asarray(trades, dtype=float)
     if len(trades) == 0:

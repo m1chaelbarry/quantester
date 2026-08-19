@@ -55,8 +55,9 @@ Terminology used across Quantester's docs, code, and reports.
   growth-optimal bet fraction.
 - **Volatility parity** — weights `w_i ∝ 1/σ_i`; equal risk contribution.
 - **Optimal-f (Vince)** — the fraction maximizing the Terminal Wealth
-  Relative `TWR(f) = Π (1 + f·(−Trade_i/WorstLoss))`; Quantester stresses
-  WorstLoss below the nominal stop (`gap_stress`) for gap risk.
+  Relative `TWR(f) = Π (1 + f·(−Trade_i/WorstLoss))`; WorstLoss defaults to
+  the raw historical BiggestLoss, with `gap_stress > 1` an explicit opt-in
+  stress (ruling D3).
 - **Spectral risk attribution** — decomposing portfolio variance onto
   principal components of a Ledoit-Wolf-stabilized covariance:
   `R_n = β_n²Λ_nn/σ²`.

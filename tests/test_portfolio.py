@@ -165,6 +165,20 @@ def test_optimal_f_twr_maximizes():
     assert f_stressed / abs(trades.min() * 1.5) <= f_plain / abs(trades.min()) + 1e-9
 
 
+def test_optimal_f_default_is_raw_biggest_loss():
+    """D3 (ticket 21): the default W is the raw historical BiggestLoss
+    (gap_stress 1.0); the 1.5x stress is an opt-in, not the default."""
+    trades = np.array([2.0, -1.0, 3.0, -1.0, 1.5, -0.5])
+    default = optimal_f(trades)
+    assert default == pytest.approx(optimal_f(trades, gap_stress=1.0))
+    assert default == pytest.approx(
+        optimal_f(trades, worst_loss=float(trades.min()))
+    )
+    # The opt-in stress still engages and never raises the effective fraction.
+    stressed = optimal_f(trades, gap_stress=1.5)
+    assert stressed / abs(trades.min() * 1.5) <= default / abs(trades.min()) + 1e-9
+
+
 def test_kakushadze_effective_returns():
     expected = pd.Series([0.05, -0.02, 0.01], index=["A", "B", "C"])
     costs = pd.Series([0.03, 0.01, 0.02], index=["A", "B", "C"])
