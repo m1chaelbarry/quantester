@@ -123,6 +123,7 @@ class MetaLabelingStrategy(Strategy):
                     limit_price=getattr(signal, "limit_price", None),
                     cancel_orders=getattr(signal, "cancel_orders", False),
                     stop_distance=getattr(signal, "stop_distance", None),
+                    hedge_ratio=getattr(signal, "hedge_ratio", None),
                 )
             )
 

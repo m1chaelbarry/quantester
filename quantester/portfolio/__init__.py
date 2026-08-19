@@ -1,6 +1,11 @@
 from .base import Portfolio
 from .portfolio import PortfolioManager
-from .sizers import FixedUnitSizer, FractionalRiskSizer, PercentEquitySizer
+from .sizers import (
+    FixedUnitSizer,
+    FractionalRiskSizer,
+    HedgeRatioSizer,
+    PercentEquitySizer,
+)
 
 __all__ = [
     "Portfolio",
@@ -8,4 +13,5 @@ __all__ = [
     "FixedUnitSizer",
     "PercentEquitySizer",
     "FractionalRiskSizer",
+    "HedgeRatioSizer",
 ]

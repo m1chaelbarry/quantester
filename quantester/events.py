@@ -82,10 +82,11 @@ class SignalEvent(Event):
     limit_price: Optional[float] = None
     cancel_orders: bool = False
     stop_distance: Optional[float] = None
+    hedge_ratio: Optional[float] = None
 
     def __init__(self, timestamp, symbol, signal_type, strength=1.0, delay=1,
                  fill_at=OPEN, limit_price=None, cancel_orders=False,
-                 stop_distance=None):
+                 stop_distance=None, hedge_ratio=None):
         super().__init__(SIGNAL, timestamp)
         if signal_type not in (LONG, SHORT, EXIT):
             raise ValueError(
@@ -121,6 +122,10 @@ class SignalEvent(Event):
         # Price-unit distance to the protective stop; consumed by
         # FractionalRiskSizer as q = equity * risk_fraction / stop_distance.
         self.stop_distance = stop_distance
+        # OLS/cointegration hedge ratio beta_t for the HEDGE leg of a pairs
+        # spread; consumed by HedgeRatioSizer as q_X = -beta * q_Y. Inert
+        # metadata for every other sizer.
+        self.hedge_ratio = hedge_ratio
 
 
 @dataclass
