@@ -23,6 +23,7 @@ this and must honor the visibility contract exactly.
 | `timestamp_at_offset(timestamp, n)` | → `pd.Timestamp \| None` | Timestamp `n` bars later on the master calendar; `None` past the end. Used to stamp `earliest_fill_time`. |
 | `current_timestamp` | property | The stream's current timestamp. |
 | `bar_at(symbol, timestamp)` | → row or `None` | Execution-side full-bar lookup (used by the execution simulator). |
+| `source_ohlcv(symbol)` | → `pd.DataFrame` | Full loaded frame for **research / post-run** use. The engine seals this during `calculate_signals` (`PermissionError`); live signals must use `get_latest_bars` / `get_current_open`. |
 
 ## `HistoricCSVDataHandler`
 

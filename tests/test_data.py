@@ -45,6 +45,18 @@ def test_firewall_visibility_per_phase(ohlc):
     assert len(visible_close) == 2
 
 
+def test_source_ohlcv_seal_blocks_then_releases(ohlc):
+    handler = HistoricCSVDataHandler({"AAA": ohlc})
+    with handler.seal_source_ohlcv():
+        with pytest.raises(PermissionError, match="source_ohlcv"):
+            handler.source_ohlcv("AAA")
+        with handler.seal_source_ohlcv():
+            with pytest.raises(PermissionError, match="source_ohlcv"):
+                handler.source_ohlcv("AAA")
+    frame = handler.source_ohlcv("AAA")
+    assert len(frame) == len(ohlc)
+
+
 def test_timestamp_at_offset(ohlc):
     handler = HistoricCSVDataHandler({"AAA": ohlc})
     idx = ohlc.index
