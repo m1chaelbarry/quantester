@@ -1,8 +1,8 @@
 """Seeded synthetic OHLCV data for examples and tests.
 
 Geometric Brownian motion closes with intra-bar high/low spreads; volume is
-lognormal. Deterministic under a fixed seed. One symbol's calendar can be made
-strictly shorter (missing bars) to exercise availability masks.
+lognormal. Deterministic under a fixed seed. Close log-increments use the
+Itô drift μ − ½σ² (Hilpisch); ``make_cointegrated_pair`` is unchanged.
 `make_cointegrated_pair` builds a GLD/GDX-like pair with a known hedge ratio
 and a stationary AR(1) log-spread for pairs-trading diagnostics.
 """
@@ -18,10 +18,17 @@ def make_synthetic_ohlcv(symbol: str = "SYN", n_bars: int = 750, s0: float = 100
                          start: str = "2020-01-01", seed: int = 42,
                          missing_every: int | None = None) -> pd.DataFrame:
     """GBM daily bars. missing_every=k drops every k-th bar (after warmup) to
-    simulate illiquid/stress gaps without erasing them from other symbols."""
+    simulate illiquid/stress gaps without erasing them from other symbols.
+
+    Log increments are Hilpisch / Itô GBM: N((μ − ½σ²)/252, σ/√252) so
+    E[log S_T] ≈ (μ − ½σ²)T rather than μT. Not covered by the notebook —
+    implemented from Yves Hilpisch, *Python for Finance*.
+    """
     rng = np.random.default_rng(seed)
     dates = pd.bdate_range(start=start, periods=n_bars, tz="UTC")
-    rets = rng.normal(mu / 252, sigma / np.sqrt(252), size=n_bars)
+    rets = rng.normal(
+        (mu - 0.5 * sigma ** 2) / 252, sigma / np.sqrt(252), size=n_bars,
+    )
     close = s0 * np.exp(np.cumsum(rets))
     open_ = np.concatenate([[s0], close[:-1]]) * (1 + rng.normal(0, 0.001, n_bars))
     spread = np.abs(rng.normal(0.004, 0.002, n_bars))

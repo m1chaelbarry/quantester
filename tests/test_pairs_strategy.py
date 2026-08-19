@@ -28,7 +28,7 @@ from quantester.data.csv_handler import HistoricCSVDataHandler
 from quantester.engine import BacktestEngine
 from quantester.events import BUY, EXIT, LONG, SELL, SHORT, SignalEvent
 from quantester.execution.simulator import SimulatedExecutionHandler
-from quantester.portfolio.portfolio import PercentEquitySizer, PortfolioManager
+from quantester.portfolio.portfolio import HedgeRatioSizer, PortfolioManager
 from quantester.strategy.base import Strategy
 from quantester.strategy.pairs_trading import (
     FLAT,
@@ -113,7 +113,7 @@ def gross(pair_data):
     handler = HistoricCSVDataHandler(pair_data)
     strategy = RecordingFirewallPairs(handler)  # spec params: 252/20, +/-2.0, 0.5
     portfolio = PortfolioManager(
-        handler, INITIAL_CAPITAL, sizer=PercentEquitySizer(0.5)
+        handler, INITIAL_CAPITAL, sizer=HedgeRatioSizer(0.5)
     )
     execution = OrderTap(ZERO_COST_MODEL)
     BacktestEngine(handler, strategy, portfolio, execution).run_backtest()
@@ -218,6 +218,11 @@ def test_signals_are_simultaneous_and_opposite(gross):
             assert legs["GLD"] == legs["GDX"] == EXIT  # flat both, together
         else:
             assert set(legs.values()) == entries  # opposite directions
+            y_sig = next(s for s in signals if s.symbol == "GLD")
+            x_sig = next(s for s in signals if s.symbol == "GDX")
+            assert y_sig.hedge_ratio == pytest.approx(1.0)
+            assert x_sig.hedge_ratio > 0.0
+            assert x_sig.hedge_ref_price == pytest.approx(y_sig.hedge_ref_price)
 
 
 def test_orders_are_simultaneous_opposite_and_firewall_stamped(gross):
@@ -228,7 +233,14 @@ def test_orders_are_simultaneous_opposite_and_firewall_stamped(gross):
         legs = {o.symbol: o for o in orders}
         assert set(legs) == {"GLD", "GDX"}
         directions = {o.direction for o in orders}
-        assert directions == {BUY, SELL}  # dollar-balanced spread legs
+        assert directions == {BUY, SELL}  # opposite spread legs
+        sigs = [s for s in gross.strategy.emitted if s.timestamp == timestamp]
+        if EXIT not in {s.signal_type for s in sigs}:
+            # q_X = -β q_Y: share ratio equals the X-leg hedge_ratio.
+            x_ratio = next(s.hedge_ratio for s in sigs if s.symbol == "GDX")
+            assert legs["GDX"].quantity / legs["GLD"].quantity == pytest.approx(
+                x_ratio, rel=1e-9
+            )
         for order in orders:
             assert order.quantity > 0
             # Temporal firewall: fill eligibility starts exactly one bar after

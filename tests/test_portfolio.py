@@ -12,6 +12,7 @@ from quantester.events import (
     MARKET_ORDER,
     MOC_ORDER,
     SELL,
+    STOP_ORDER,
     FillEvent,
     MarketEvent,
     SignalEvent,
@@ -19,6 +20,7 @@ from quantester.events import (
 from quantester.portfolio.portfolio import (
     FixedUnitSizer,
     FractionalRiskSizer,
+    HedgeRatioSizer,
     PercentEquitySizer,
     PortfolioManager,
 )
@@ -108,6 +110,37 @@ def test_sizers():
     assert target == pytest.approx(100_000 * 0.5 * 0.5 / 10.0)
     risk_target = FractionalRiskSizer(0.02)(_Signal(), portfolio, 10.0)
     assert risk_target == pytest.approx(100_000 * 0.02 / 10.0)
+
+
+def test_hedge_ratio_sizer_scales_x_leg_off_y_notional():
+    """q_X = -β q_Y: X uses Y's price, not its own, so the spread is β-hedged."""
+    class _Y:
+        signal_type = LONG
+        strength = 1.0
+        hedge_ratio = 1.0
+        hedge_ref_price = 50.0
+
+    class _X:
+        signal_type = "SHORT"
+        strength = 1.0
+        hedge_ratio = 1.4
+        hedge_ref_price = 50.0
+
+    portfolio = _portfolio()
+    sizer = HedgeRatioSizer(0.5)
+    q_y = sizer(_Y(), portfolio, 50.0)
+    q_x = sizer(_X(), portfolio, 25.0)  # X's own price must not drive size
+    assert q_y == pytest.approx(100_000 * 0.5 / 50.0)  # 1000
+    assert q_x == pytest.approx(-1.4 * q_y)
+
+
+def test_hedge_ratio_zero_does_not_collapse_to_one():
+    class _X:
+        signal_type = "SHORT"
+        hedge_ratio = 0.0
+        hedge_ref_price = 50.0
+
+    assert HedgeRatioSizer(0.5)(_X(), _portfolio(), 25.0) == 0.0
 
 
 def test_kelly():
@@ -292,6 +325,65 @@ def test_moc_signal_routing_and_delay_guard():
         portfolio.update_from_signal(
             SignalEvent(D1, "AAA", EXIT, delay=0, fill_at="close"), _Queue()
         )
+
+
+# -------------------------------------------------------- resting stops
+
+def test_signal_stop_price_emits_resting_flatten_stop():
+    """Opt-in intra-bar stop: PortfolioManager rests STOP_ORDER with the entry."""
+    from quantester.data.streaming import StreamingDataHandler
+
+    idx = pd.bdate_range("2024-01-02", periods=3, tz="UTC")
+    df = pd.DataFrame(
+        {"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0,
+         "volume": 1e6},
+        index=idx,
+    )
+    handler = StreamingDataHandler({"AAA": df})
+    handler.set_phase("close", idx[0])
+    portfolio = PortfolioManager(handler, 100_000.0, sizer=PercentEquitySizer(1.0))
+    queue = _Queue()
+    portfolio.update_from_signal(
+        SignalEvent(
+            idx[0], "AAA", LONG, strength=0.1, delay=1, stop_price=95.0,
+        ),
+        queue,
+    )
+    markets = [o for o in queue if o.order_type == MARKET_ORDER]
+    stops = [o for o in queue if o.order_type == STOP_ORDER]
+    assert len(markets) == 1 and len(stops) == 1
+    assert stops[0].direction == SELL
+    assert stops[0].stop_price == pytest.approx(95.0)
+    assert stops[0].quantity == pytest.approx(markets[0].quantity)
+    assert stops[0].earliest_fill_time == markets[0].earliest_fill_time
+
+
+def test_stop_only_signal_rests_stop_without_resizing():
+    """Tranche freeze: attach a protective stop to the filled book, no delta."""
+    from quantester.data.streaming import StreamingDataHandler
+
+    idx = pd.bdate_range("2024-01-02", periods=3, tz="UTC")
+    df = pd.DataFrame(
+        {"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0,
+         "volume": 1e6},
+        index=idx,
+    )
+    handler = StreamingDataHandler({"AAA": df})
+    handler.set_phase("close", idx[0])
+    portfolio = PortfolioManager(handler, 100_000.0, sizer=FixedUnitSizer(40.0))
+    portfolio.update_from_fill(FillEvent(idx[0], "AAA", 40.0, BUY, 100.0, 0.0, 0.0))
+    queue = _Queue()
+    portfolio.update_from_signal(
+        SignalEvent(
+            idx[0], "AAA", LONG, delay=1, stop_price=90.0, stop_only=True,
+        ),
+        queue,
+    )
+    assert [o.order_type for o in queue] == [STOP_ORDER]
+    assert queue[0].quantity == pytest.approx(40.0)
+    assert queue[0].direction == SELL
+    assert queue[0].stop_price == pytest.approx(90.0)
+    assert queue[0].earliest_fill_time == idx[1]
 
 
 # ------------------------------------------------------------ cash yield

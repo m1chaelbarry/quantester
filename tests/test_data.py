@@ -100,6 +100,26 @@ def test_tick_imbalance_bars_structure():
     assert bars["close"].iloc[-1] == pytest.approx(ticks["price"].iloc[-1])
 
 
+def test_tick_imbalance_ewma_uses_bar_level_signed_flow():
+    """After warmup, E[imbalance] is EWMA of per-bar mean signed flow.
+
+    Concatenating ticks and sharing ``span`` with bar lengths remembers ~span
+    ticks, not ~span bars (research 02 / AFML ch. 2). A mixed bar followed by
+    buys diverges: tick-concat volumes would be [2, 6, 5, 5, 5, 5].
+    """
+    # b_0 = +1; each later sign is a +1/-1 price step so the tick rule matches.
+    signs = [1, 1, 1, -1, 1, -1, 1, 1] + [1] * 20
+    prices = [100.0]
+    for step in signs[1:]:
+        prices.append(prices[-1] + float(step))
+    idx = pd.date_range("2024-01-01", periods=len(prices), freq="1min", tz="UTC")
+    ticks = pd.DataFrame({"price": prices, "volume": 1.0}, index=idx)
+    bars = tick_imbalance_bars(
+        ticks, span=2, warmup=1, initial_expected_len=2.0,
+    )
+    assert list(bars["volume"].astype(int)) == [2, 6, 3, 4, 4, 4, 4, 1]
+
+
 def _trick_inputs(rebalance=True):
     idx = pd.bdate_range("2024-01-01", periods=6, tz="UTC")
     close = pd.DataFrame({"F1": [100, 101, 102, 103, 104, 105],
@@ -137,3 +157,18 @@ def test_etf_trick_short_spread_no_fictitious_profit():
     net_short = (short_run["K"] - 1.0) - short_run["c"].cumsum()
     gross_short = short_run["K"] - 1.0
     assert (net_short <= gross_short + 1e-12).all()
+
+
+def test_synthetic_ohlcv_log_drift_uses_ito_correction():
+    """Hilpisch GBM: E[Δlog S] = (μ − ½σ²)Δt, not μΔt (synthesis §1.11)."""
+    mu, sigma, n_bars, s0 = 0.20, 0.40, 80_000, 100.0
+    frame = make_synthetic_ohlcv(
+        "AAA", n_bars=n_bars, s0=s0, mu=mu, sigma=sigma, seed=1,
+    )
+    log_levels = np.log(frame["close"].to_numpy() / s0)
+    daily = np.concatenate([[log_levels[0]], np.diff(log_levels)])
+    mean_daily = float(daily.mean())
+    ito_daily = (mu - 0.5 * sigma ** 2) / 252
+    naive_daily = mu / 252
+    assert abs(mean_daily - ito_daily) < abs(mean_daily - naive_daily)
+    assert abs(mean_daily - ito_daily) < 0.0002

@@ -72,6 +72,19 @@ def test_cpcv_combinatorics_and_disjointness():
         assert len(test_idx) == 20  # 2 groups of 10
 
 
+def test_cpcv_n_paths_matches_binomial_identity():
+    """phi[N,k] = C(N-1, k-1), not int((k/N) * C(N, N-k)) which truncates."""
+    from math import comb
+
+    cases = ((4, 2), (7, 3), (11, 6), (15, 11))
+    for n_groups, k_test in cases:
+        cpcv = CombinatorialPurgedKFold(n_groups=n_groups, k_test=k_test)
+        assert cpcv.n_paths == comb(n_groups - 1, k_test - 1)
+        # The float product is the known truncation failure at (11, 6).
+        if (n_groups, k_test) == (11, 6):
+            assert int(k_test / n_groups * cpcv.n_splits) != cpcv.n_paths
+
+
 def _constructed_pnl():
     """Trial 0 shines in the first half and collapses in the second; the other
     trials are uniformly mediocre -> best in-sample trial fails out-of-sample."""

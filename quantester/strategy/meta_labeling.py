@@ -6,8 +6,10 @@ and that probability scales the trade SIZE. This filters false positives:
 precision rises at the cost of recall.
 
 Labels come from the triple-barrier method: y=1 if the primary signal was
-correct (take-profit barrier touched first / positive realization at the
-vertical barrier), y=0 otherwise.
+correct (take-profit barrier touched first on the high/low path / positive
+realization at the vertical barrier), y=0 otherwise. Same-bar TP and SL
+touches label the stop. Close-only callers omit high/low and recover the
+legacy path.
 
 The z-score size transform m = 2*Phi(z) - 1 (AFML ch.10) was NOT covered by the
 user's notebook; it is offered as an option and flagged as such.
@@ -24,13 +26,27 @@ from .base import Strategy
 
 
 def triple_barrier_labels(close: pd.Series, events: pd.DataFrame,
-                          tp_pct: float, sl_pct: float, max_holding: int) -> pd.Series:
+                          tp_pct: float, sl_pct: float, max_holding: int,
+                          high: pd.Series | None = None,
+                          low: pd.Series | None = None) -> pd.Series:
     """Binary meta-labels for primary-model events.
 
     events: DataFrame with columns [t0 (entry timestamp), side (+1/-1)].
     Returns Series of y in {0, 1} indexed like events: 1 if the primary signal
     was correct under the triple-barrier outcome.
+
+    First touch walks the intra-bar high/low path (AFML ch. 3): long TP if
+    high ≥ tp, long SL if low ≤ sl; short is the opposite. When both barriers
+    are touched on the same bar, the label is the stop (y=0). ``high``/``low``
+    default to ``close`` so existing close-only callers keep their labels.
+    The vertical-barrier terminal still uses close.
+
+    Notebook-verified: AFML ch. 3 triple-barrier intent (close-path labels).
+    High/low first-touch is AFML ch. 3 path dependence — not covered by a
+    notebook page beyond that intent; implemented from AFML ch. 3.
     """
+    high = close if high is None else high
+    low = close if low is None else low
     labels = {}
     idx = close.index
     pos_of = {ts: i for i, ts in enumerate(idx)}
@@ -41,14 +57,25 @@ def triple_barrier_labels(close: pd.Series, events: pd.DataFrame,
         tp = entry * (1 + side * tp_pct)
         sl = entry * (1 - side * sl_pct)
         end = min(i0 + max_holding, len(idx) - 1)
-        path = close.iloc[i0 + 1 : end + 1]
-        hit_tp = (path >= tp) if side > 0 else (path <= tp)
-        hit_sl = (path <= sl) if side > 0 else (path >= sl)
+        path_high = high.iloc[i0 + 1 : end + 1]
+        path_low = low.iloc[i0 + 1 : end + 1]
+        path_close = close.iloc[i0 + 1 : end + 1]
+        if side > 0:
+            hit_tp = path_high >= tp
+            hit_sl = path_low <= sl
+        else:
+            hit_tp = path_low <= tp
+            hit_sl = path_high >= sl
         y = 0
-        if hit_tp.any() and (not hit_sl.any() or hit_tp.idxmax() <= hit_sl.idxmax()):
-            y = 1
-        elif not hit_sl.any():
-            final = float(path.iloc[-1]) if len(path) else entry
+        if hit_tp.any() or hit_sl.any():
+            tp_t = hit_tp.idxmax() if hit_tp.any() else None
+            sl_t = hit_sl.idxmax() if hit_sl.any() else None
+            if sl_t is not None and (tp_t is None or sl_t <= tp_t):
+                y = 0  # stop first, or same-bar both-hit
+            else:
+                y = 1
+        elif len(path_close):
+            final = float(path_close.iloc[-1])
             y = 1 if (final - entry) * side > 0 else 0
         labels[event_id] = y
     return pd.Series(labels)
@@ -128,11 +155,14 @@ class MetaLabelingStrategy(Strategy):
 
     def fit_secondary(self, features: pd.DataFrame, close: pd.Series,
                       events: pd.DataFrame, tp_pct: float, sl_pct: float,
-                      max_holding: int):
+                      max_holding: int, high: pd.Series | None = None,
+                      low: pd.Series | None = None):
         """Build triple-barrier labels for the primary events and fit the model."""
         if self.model is None:
             raise ValueError("No secondary model configured.")
-        y = triple_barrier_labels(close, events, tp_pct, sl_pct, max_holding)
+        y = triple_barrier_labels(
+            close, events, tp_pct, sl_pct, max_holding, high=high, low=low,
+        )
         self.model.fit(features.loc[y.index], y)
         return y
 

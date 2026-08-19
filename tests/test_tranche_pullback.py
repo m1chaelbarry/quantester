@@ -49,9 +49,9 @@ def _ramp(n=200, start=90.0, end=100.0):
     return bars
 
 
-def _run(bars):
+def _run(bars, **strategy_kwargs):
     handler = StreamingDataHandler({"BTC": _frame(bars)})
-    strategy = TranchePullbackStrategy(handler, "BTC")
+    strategy = TranchePullbackStrategy(handler, "BTC", **strategy_kwargs)
     portfolio = PortfolioManager(handler, CAPITAL, sizer=PercentEquitySizer(1.0))
     engine = BacktestEngine(handler, strategy, portfolio,
                             SimulatedExecutionHandler(ZERO_COSTS))
@@ -154,6 +154,31 @@ def test_hard_stop_triggers_on_low_and_exits_next_open():
     assert sells[0].quantity == pytest.approx(sum(b.quantity for b in buys))
     assert portfolio.positions == {}
     assert len(portfolio.trades) == 1 and portfolio.trades[0]["pnl"] < 0
+
+
+def test_resting_stops_fill_hard_stop_gap_through():
+    """resting_stops=True fills the catastrophic stop at gap-through this bar."""
+    bars = _ramp()
+    bars += [
+        (100.0, 100.0, 99.80, 99.83),
+        (99.83, 99.85, 99.60, 99.77),
+        (99.70, 99.72, 99.68, 99.71),
+    ] + [(99.92, 99.92, 99.92, 99.92)] * 3
+    _, portfolio = _run(bars, resting_stops=True)
+
+    _, _, thresholds, stop = _latched_levels(bars)
+    frame = _frame(bars)
+    buys = [f for f in portfolio.fills if f.direction == BUY]
+    sells = [f for f in portfolio.fills if f.direction == SELL]
+    assert len(buys) == 3
+    assert [f.reference_price for f in buys] == pytest.approx(thresholds)
+    assert sells
+    assert sum(s.quantity for s in sells) == pytest.approx(
+        sum(b.quantity for b in buys)
+    )
+    assert sells[0].timestamp == frame.index[201]
+    assert sells[0].reference_price == pytest.approx(min(stop, 99.83))
+    assert portfolio.positions == {}
 
 
 def test_unfilled_ladder_reanchors_until_first_fill():

@@ -100,8 +100,12 @@ class CombinatorialPurgedKFold:
 
     @property
     def n_paths(self) -> int:
-        """phi[N,k] = (k/N) * C(N, N-k): unique reconstructable backtest paths."""
-        return int(self.k_test / self.n_groups * self.n_splits)
+        """phi[N,k] = C(N-1, k-1) = (k/N) * C(N, N-k) unique backtest paths.
+
+        The binomial identity is exact. ``int((k/N) * n_splits)`` truncates
+        when the float product sits just below an integer (e.g. N=11, k=6).
+        """
+        return comb(self.n_groups - 1, self.k_test - 1)
 
     def split(self, X: pd.DataFrame):
         n = len(X)

@@ -93,6 +93,35 @@ def test_triple_barrier_labels():
     assert triple_barrier_labels(falling, short_events, 0.05, 0.05, 20).iloc[0] == 1
 
 
+def test_triple_barrier_labels_use_high_low_path():
+    """AFML ch.3: first touch is on the intra-bar high/low path, not close."""
+    idx = pd.bdate_range("2024-01-01", periods=10)
+    close = pd.Series([100.0] * 10, index=idx)
+    high = close.copy()
+    low = close.copy()
+    high.iloc[2] = 110.0  # TP at 105; close never leaves 100
+    events = pd.DataFrame({"t0": [idx[0]], "side": [1]})
+    assert triple_barrier_labels(close, events, 0.05, 0.05, 8).iloc[0] == 0
+    assert triple_barrier_labels(
+        close, events, 0.05, 0.05, 8, high=high, low=low,
+    ).iloc[0] == 1
+
+
+def test_triple_barrier_same_bar_both_hit_is_stop():
+    """When high and low breach TP and SL on the same bar, label the stop."""
+    idx = pd.bdate_range("2024-01-01", periods=6)
+    close = pd.Series([100.0] * 6, index=idx)
+    high = close.copy()
+    low = close.copy()
+    high.iloc[1] = 110.0
+    low.iloc[1] = 90.0
+    events = pd.DataFrame({"t0": [idx[0]], "side": [1]})
+    assert triple_barrier_labels(
+        close, events, 0.05, 0.05, 4, high=high, low=low,
+    ).iloc[0] == 0
+
+
+
 def test_meta_labeling_scales_strength(ohlc):
     from quantester.data.csv_handler import HistoricCSVDataHandler
 
