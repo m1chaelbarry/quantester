@@ -85,11 +85,12 @@ class SignalEvent(Event):
     hedge_ratio: Optional[float] = None
     hedge_ref_price: Optional[float] = None
     stop_price: Optional[float] = None
+    stop_only: bool = False
 
     def __init__(self, timestamp, symbol, signal_type, strength=1.0, delay=1,
                  fill_at=OPEN, limit_price=None, cancel_orders=False,
                  stop_distance=None, hedge_ratio=None, hedge_ref_price=None,
-                 stop_price=None):
+                 stop_price=None, stop_only=False):
         super().__init__(SIGNAL, timestamp)
         if signal_type not in (LONG, SHORT, EXIT):
             raise ValueError(
@@ -132,6 +133,9 @@ class SignalEvent(Event):
         # Optional resting STOP_ORDER price; PortfolioManager emits a flatten
         # stop alongside the entry when this is set (opt-in intra-bar stops).
         self.stop_price = stop_price
+        # When True, skip the size delta and only rest/replace the protective
+        # stop on the current (or sized) quantity — used after a tranche freeze.
+        self.stop_only = bool(stop_only)
 
 
 @dataclass

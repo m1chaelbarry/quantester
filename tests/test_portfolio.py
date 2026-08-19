@@ -12,6 +12,7 @@ from quantester.events import (
     MARKET_ORDER,
     MOC_ORDER,
     SELL,
+    STOP_ORDER,
     FillEvent,
     MarketEvent,
     SignalEvent,
@@ -315,6 +316,65 @@ def test_moc_signal_routing_and_delay_guard():
         portfolio.update_from_signal(
             SignalEvent(D1, "AAA", EXIT, delay=0, fill_at="close"), _Queue()
         )
+
+
+# -------------------------------------------------------- resting stops
+
+def test_signal_stop_price_emits_resting_flatten_stop():
+    """Opt-in intra-bar stop: PortfolioManager rests STOP_ORDER with the entry."""
+    from quantester.data.streaming import StreamingDataHandler
+
+    idx = pd.bdate_range("2024-01-02", periods=3, tz="UTC")
+    df = pd.DataFrame(
+        {"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0,
+         "volume": 1e6},
+        index=idx,
+    )
+    handler = StreamingDataHandler({"AAA": df})
+    handler.set_phase("close", idx[0])
+    portfolio = PortfolioManager(handler, 100_000.0, sizer=PercentEquitySizer(1.0))
+    queue = _Queue()
+    portfolio.update_from_signal(
+        SignalEvent(
+            idx[0], "AAA", LONG, strength=0.1, delay=1, stop_price=95.0,
+        ),
+        queue,
+    )
+    markets = [o for o in queue if o.order_type == MARKET_ORDER]
+    stops = [o for o in queue if o.order_type == STOP_ORDER]
+    assert len(markets) == 1 and len(stops) == 1
+    assert stops[0].direction == SELL
+    assert stops[0].stop_price == pytest.approx(95.0)
+    assert stops[0].quantity == pytest.approx(markets[0].quantity)
+    assert stops[0].earliest_fill_time == markets[0].earliest_fill_time
+
+
+def test_stop_only_signal_rests_stop_without_resizing():
+    """Tranche freeze: attach a protective stop to the filled book, no delta."""
+    from quantester.data.streaming import StreamingDataHandler
+
+    idx = pd.bdate_range("2024-01-02", periods=3, tz="UTC")
+    df = pd.DataFrame(
+        {"open": 100.0, "high": 101.0, "low": 99.0, "close": 100.0,
+         "volume": 1e6},
+        index=idx,
+    )
+    handler = StreamingDataHandler({"AAA": df})
+    handler.set_phase("close", idx[0])
+    portfolio = PortfolioManager(handler, 100_000.0, sizer=FixedUnitSizer(40.0))
+    portfolio.update_from_fill(FillEvent(idx[0], "AAA", 40.0, BUY, 100.0, 0.0, 0.0))
+    queue = _Queue()
+    portfolio.update_from_signal(
+        SignalEvent(
+            idx[0], "AAA", LONG, delay=1, stop_price=90.0, stop_only=True,
+        ),
+        queue,
+    )
+    assert [o.order_type for o in queue] == [STOP_ORDER]
+    assert queue[0].quantity == pytest.approx(40.0)
+    assert queue[0].direction == SELL
+    assert queue[0].stop_price == pytest.approx(90.0)
+    assert queue[0].earliest_fill_time == idx[1]
 
 
 # ------------------------------------------------------------ cash yield

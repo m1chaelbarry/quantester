@@ -95,14 +95,20 @@ EXITING = "exiting"
 
 
 class TranchePullbackStrategy(Strategy):
-    """Latched three-tranche pullback ladder on a single symbol; delay=1."""
+    """Latched three-tranche pullback ladder on a single symbol; delay=1.
+
+    ``resting_stops=True`` rests a flatten STOP_ORDER after the first fill
+    (gap-through). Default ``False`` keeps delay-1 EXIT-on-touch for the
+    5×ATR catastrophic stop.
+    """
 
     def __init__(self, data_handler, symbol: str, regime_window: int = 200,
                  peak_window: int = 20, atr_window: int = 14,
                  atr_spacing: float = 1.5,
                  tranche_fractions: tuple = (0.25, 0.35, 0.40),
                  exit_window: int = 5, stop_atr_mult: float = 5.0,
-                 reanchor_every: int = 1, cooldown_bars: int = 0):
+                 reanchor_every: int = 1, cooldown_bars: int = 0,
+                 resting_stops: bool = False):
         if not tranche_fractions or any(f <= 0 for f in tranche_fractions):
             raise ValueError("tranche_fractions must be positive")
         if abs(sum(tranche_fractions) - 1.0) > 1e-9:
@@ -131,6 +137,7 @@ class TranchePullbackStrategy(Strategy):
         # at 0 (next bar = next day). On intraday ports set to bars-per-day - 1
         # so a same-day stop/exit cannot immediately re-enter.
         self.cooldown_bars = int(cooldown_bars)
+        self.resting_stops = bool(resting_stops)
         self.delay = 1  # signals at close T, orders live from bar T+1
 
         self._history = max(
@@ -146,6 +153,7 @@ class TranchePullbackStrategy(Strategy):
         self._latched_at = None
         self._bars_since_anchor = 0
         self._cooldown_remaining = 0
+        self._stop_frac_armed = 0.0
 
     # ------------------------------------------------------------- state I/O
 
@@ -195,6 +203,7 @@ class TranchePullbackStrategy(Strategy):
         self._latched_at = None
         self._bars_since_anchor = 0
         # _cooldown_remaining is intentionally preserved across reset
+        self._stop_frac_armed = 0.0
 
     def _mark_fills(self, timestamp, low: float):
         """Mirror the execution ledger: tranche k fills once a bar's low
@@ -247,8 +256,28 @@ class TranchePullbackStrategy(Strategy):
         if any(self._filled):
             # Frozen: latched levels govern the remaining tranches, the stop
             # and the exit until the position is completely closed.
+            if self.resting_stops:
+                filled_frac = sum(
+                    frac for frac, on in zip(
+                        self.tranche_fractions, self._filled
+                    ) if on
+                )
+                if (
+                    filled_frac > 1e-12
+                    and self._stop_frac_armed == 0.0
+                    and self._stop is not None
+                ):
+                    events_queue.put(
+                        SignalEvent(
+                            event.timestamp, self.symbol, LONG,
+                            strength=filled_frac, delay=0,
+                            stop_price=self._stop, stop_only=True,
+                        )
+                    )
+                    self._stop_frac_armed = filled_frac
             if float(bar["low"]) <= self._stop:
-                # Stop touch observed at close → fill next open (delay=1).
+                # Resting stop (if armed) fills this close; EXIT flattens any
+                # remainder (later tranche fills) and purges leftover limits.
                 self._emit_exit(event, events_queue)
             elif close_t >= sma_exit:
                 self._emit_exit(event, events_queue)  # mean reversion to SMA_5

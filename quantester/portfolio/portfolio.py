@@ -19,6 +19,7 @@ from ..events import (
     MOC_ORDER,
     OPEN,
     SELL,
+    STOP_ORDER,
     OrderEvent,
 )
 from .base import Portfolio
@@ -153,14 +154,17 @@ class PortfolioManager(Portfolio):
         # Margin restriction: block any order that would increase |position|
         # (new entry risk). Risk-reducing shrinks / flips toward flat remain
         # allowed so recovery and intentional exits can proceed.
+        stop_only = bool(getattr(signal, "stop_only", False))
         if (
-            self.margin_monitor is not None
+            not stop_only
+            and self.margin_monitor is not None
             and self.margin_monitor.restricted
             and abs(target) > abs(current) + 1e-12
         ):
             return
-        delta = target - current
-        if abs(delta) < 1e-12:
+        delta = 0.0 if stop_only else target - current
+        stop_px = getattr(signal, "stop_price", None)
+        if abs(delta) < 1e-12 and stop_px is None:
             return
         fill_at_close = getattr(signal, "fill_at", OPEN) == "close"
         if fill_at_close:
@@ -171,23 +175,43 @@ class PortfolioManager(Portfolio):
             )
             if fill_time is None:
                 return  # no future bar exists to fill on (end of data)
-        if fill_at_close:
-            order_type = MOC_ORDER
-        elif signal.limit_price is not None:
-            order_type = LIMIT_ORDER
-        else:
-            order_type = MARKET_ORDER
-        events_queue.put(
-            OrderEvent(
-                timestamp=signal.timestamp,
-                symbol=signal.symbol,
-                order_type=order_type,
-                quantity=abs(delta),
-                direction=BUY if delta > 0 else SELL,
-                earliest_fill_time=fill_time,
-                limit_price=signal.limit_price,
+        if abs(delta) >= 1e-12:
+            if fill_at_close:
+                order_type = MOC_ORDER
+            elif signal.limit_price is not None:
+                order_type = LIMIT_ORDER
+            else:
+                order_type = MARKET_ORDER
+            events_queue.put(
+                OrderEvent(
+                    timestamp=signal.timestamp,
+                    symbol=signal.symbol,
+                    order_type=order_type,
+                    quantity=abs(delta),
+                    direction=BUY if delta > 0 else SELL,
+                    earliest_fill_time=fill_time,
+                    limit_price=signal.limit_price,
+                )
             )
-        )
+        if stop_px is not None:
+            if bool(getattr(signal, "stop_only", False)) and abs(current) > 1e-12:
+                stop_qty = abs(current)
+                stop_sign = current
+            else:
+                stop_qty = abs(target)
+                stop_sign = target
+            if stop_qty > 1e-12:
+                events_queue.put(
+                    OrderEvent(
+                        timestamp=signal.timestamp,
+                        symbol=signal.symbol,
+                        order_type=STOP_ORDER,
+                        quantity=stop_qty,
+                        direction=SELL if stop_sign > 0 else BUY,
+                        earliest_fill_time=fill_time,
+                        stop_price=float(stop_px),
+                    )
+                )
 
     # -------------------------------------------------------------------- fills
 

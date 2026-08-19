@@ -227,6 +227,38 @@ def test_protective_atr_stop_next_open():
     assert sells[0].reference_price == pytest.approx(exit_open)
 
 
+def test_resting_stops_fill_gap_through_on_stop_bar():
+    """resting_stops=True rests STOP_ORDER; gap-through fills this bar, not T+1 open."""
+    bars = _trend(220)
+    df_pre = _frame(bars)
+    prior_high = df_pre["high"].iloc[-21:-1].max()
+    breakout = float(prior_high + 1.0)
+    o, h, l, _ = bars[-1]
+    bars[-1] = (o, max(h, breakout + 0.5), l, breakout)
+
+    entry_open = breakout + 0.25
+    sig_df = _frame(bars)
+    atr_at_signal = float(
+        wilder_atr(sig_df["high"], sig_df["low"], sig_df["close"], 14).iloc[-1]
+    )
+    protective = entry_open - STOP_MULT * atr_at_signal
+    bars.append((entry_open, entry_open + 1.0, entry_open - 0.05, entry_open + 0.5))
+    stop_close = protective - 0.5
+    bars.append(
+        (entry_open + 0.5, entry_open + 0.6, protective - 1.0, stop_close)
+    )
+    exit_open = stop_close + 0.1
+    bars.append((exit_open, exit_open + 0.2, exit_open - 0.2, exit_open))
+    bars += [(exit_open, exit_open + 0.2, exit_open - 0.2, exit_open)] * 2
+
+    _, portfolio, _ = _run(bars, resting_stops=True)
+    sells = [f for f in portfolio.fills if f.direction == SELL]
+    assert len(sells) >= 1
+    assert sells[0].reference_price == pytest.approx(protective)
+    frame = _frame(bars)
+    assert sells[0].timestamp == frame.index[221]
+
+
 def test_short_entry_symmetric():
     """Bearish regime + downside Donchian breakout enters short."""
     # Strong downtrend so SMA200 is above price and ADX is elevated.

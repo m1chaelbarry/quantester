@@ -22,10 +22,9 @@ Mathematical model (all levels from closes/highs/lows under the firewall):
 - Short entry at close T: Close_T < B_down,T AND Close_T < SMA_200 AND ADX > 25.
 - Execution: delay=1 market fill at the open of bar T+1.
 - Protective floor: latched at the fill-bar open ∓ stop_atr_mult × ATR_14
-  (ATR taken from the signal bar). Triggered when the bar's high/low touches
-  the stop at close; execution is delay=1 at the **next bar's open** (OHLC
-  backtests must not fill the same bar's close after observing that bar's
-  extremes — that hybrid is not live-tradable without an intrabar event).
+  (ATR taken from the signal bar). Default: high/low touch at close, delay=1
+  next open. ``resting_stops=True`` rests STOP_ORDER (gap-through at the next
+  available price, never a guaranteed stop).
 - Trailing stop: opposite 10-period Donchian boundary from prior bars
   (long: min Low_{t-1..t-10}; short: max High_{t-1..t-10}); close breach exits
   at the next open (delay=1).
@@ -67,7 +66,9 @@ class DonchianBreakoutStrategy(Strategy):
     """SMA-gated Donchian breakout with ADX filter; delay=1.
 
     Set ``long_only=True`` to suppress short entries (recommended for BTC
-    and multi-coin daily sleeves).
+    and multi-coin daily sleeves). Set ``resting_stops=True`` to rest a
+    ``STOP_ORDER`` at the latched ATR floor (gap-through at the next
+    available price). Default ``False`` keeps delay-1 EXIT-on-touch.
     """
 
     def __init__(
@@ -84,6 +85,7 @@ class DonchianBreakoutStrategy(Strategy):
         stop_atr_mult: float = 2.0,
         risk_fraction: float = 0.02,
         long_only: bool = False,
+        resting_stops: bool = False,
     ):
         if regime_window < 2:
             raise ValueError("regime_window must be >= 2")
@@ -110,6 +112,7 @@ class DonchianBreakoutStrategy(Strategy):
         self.stop_atr_mult = float(stop_atr_mult)
         self.risk_fraction = float(risk_fraction)
         self.long_only = bool(long_only)
+        self.resting_stops = bool(resting_stops)
         self.delay = 1
 
         # ADX needs two Wilder passes (~2× window) after the first TR bar.
@@ -124,6 +127,7 @@ class DonchianBreakoutStrategy(Strategy):
         self._state = FLAT
         self._signal_atr: float | None = None
         self._protective_stop: float | None = None
+        self._stop_armed = False
 
     # ------------------------------------------------------------- state I/O
 
@@ -131,6 +135,7 @@ class DonchianBreakoutStrategy(Strategy):
         self._state = FLAT
         self._signal_atr = None
         self._protective_stop = None
+        self._stop_armed = False
 
     def _emit_entry(self, timestamp, events_queue, side: str, atr_value: float):
         stop_distance = self.stop_atr_mult * atr_value
@@ -160,6 +165,7 @@ class DonchianBreakoutStrategy(Strategy):
                 strength=1.0,
                 delay=self.delay,
                 fill_at=fill_at,
+                cancel_orders=self.resting_stops,
             )
         )
         self._state = EXITING
@@ -220,6 +226,27 @@ class DonchianBreakoutStrategy(Strategy):
         if self._state in (ENTERING_LONG, ENTERING_SHORT):
             # Delay-1 fill reference is this bar's open.
             self._latch_protective(open_t)
+            if (
+                self.resting_stops
+                and not self._stop_armed
+                and self._protective_stop is not None
+                and self._state in (LONG_STATE, SHORT_STATE)
+                and self._signal_atr is not None
+            ):
+                side = LONG if self._state == LONG_STATE else SHORT
+                events_queue.put(
+                    SignalEvent(
+                        event.timestamp,
+                        self.symbol,
+                        side,
+                        strength=1.0,
+                        delay=0,
+                        stop_distance=self.stop_atr_mult * self._signal_atr,
+                        stop_price=self._protective_stop,
+                        stop_only=True,
+                    )
+                )
+                self._stop_armed = True
 
         if self._state == FLAT:
             strong = adx_t > self.adx_threshold
@@ -237,8 +264,12 @@ class DonchianBreakoutStrategy(Strategy):
         if self._state == LONG_STATE:
             protective = self._protective_stop
             if protective is not None and low_t <= protective:
-                # Stop touch observed at close → fill next open (delay=1).
-                self._emit_exit(event, events_queue)
+                if self.resting_stops:
+                    # Ledger STOP_ORDER (gap-through this close); do not also
+                    # flatten delay-1 — that would double-sell after the fill.
+                    self._state = EXITING
+                else:
+                    self._emit_exit(event, events_queue)
             elif close_t < sma_exit or close_t < trail_long:
                 self._emit_exit(event, events_queue)
             return
@@ -246,7 +277,10 @@ class DonchianBreakoutStrategy(Strategy):
         if self._state == SHORT_STATE:
             protective = self._protective_stop
             if protective is not None and high_t >= protective:
-                self._emit_exit(event, events_queue)
+                if self.resting_stops:
+                    self._state = EXITING
+                else:
+                    self._emit_exit(event, events_queue)
             elif close_t > sma_exit or close_t > trail_short:
                 self._emit_exit(event, events_queue)
 
