@@ -219,3 +219,38 @@ def test_fast_track_engine_parity_price_aware_costs(ohlc):
         engine_equity.to_numpy(), fast.equity.to_numpy(), rtol=1e-9, atol=1e-6
     )
     assert any(f.commission > 0 for f in portfolio.fills)  # fees really charged
+
+
+def test_fast_track_sharpe_tearsheet_parity_mode(ohlc):
+    """§4.9 parity mode: fast-track Sharpe must be able to call the tearsheet
+    function on the same equity series, so MCPT ranks the statistic the
+    tearsheet reports. Default stays the legacy simple-return Sharpe."""
+    from quantester.analytics.performance import annualized_sharpe
+
+    target = pd.Series(1.0, index=ohlc.index)
+    fast = fast_backtest(ohlc, target, CostModel(), sharpe_mode="tearsheet")
+    assert fast.sharpe == pytest.approx(
+        annualized_sharpe(fast.equity), rel=1e-12
+    )
+
+    legacy = fast_backtest(ohlc, target, CostModel())
+    simple = fast.equity.pct_change().dropna()
+    assert legacy.sharpe == pytest.approx(
+        float(simple.mean() / simple.std() * np.sqrt(252)), rel=1e-12
+    )
+
+
+def test_fast_track_periods_per_year_explicit(ohlc):
+    """Annualization is an explicit argument on the fast track too (§1.2)."""
+    target = pd.Series(1.0, index=ohlc.index)
+    daily = fast_backtest(ohlc, target, CostModel())
+    hourly = fast_backtest(ohlc, target, CostModel(), periods_per_year=1638.0)
+    assert hourly.sharpe == pytest.approx(
+        daily.sharpe * np.sqrt(1638.0 / 252.0), rel=1e-9
+    )
+
+
+def test_fast_track_sharpe_mode_validation(ohlc):
+    target = pd.Series(1.0, index=ohlc.index)
+    with pytest.raises(ValueError, match="sharpe_mode"):
+        fast_backtest(ohlc, target, CostModel(), sharpe_mode="geometric")
