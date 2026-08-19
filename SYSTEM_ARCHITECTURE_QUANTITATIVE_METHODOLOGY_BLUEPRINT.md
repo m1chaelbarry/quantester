@@ -113,7 +113,7 @@ The current open is available only via `get_current_open`. At close phase, `inde
 | `StooqDataHandler` / `FMPDataHandler` | HTTP EOD | Retrieval only; daily stamps UTC-localized. |
 | `AKShareDataHandler` | A-share / US daily | `adjust ∈ {"", "qfq", "hfq"}` passed through to AKShare. |
 
-Macro overlays (`macro/align.py::as_daily_reindex`) are **not** bar feeds: they ffill (default) a lower-frequency series onto a UTC calendar. `bfill` is offered and **would be look-ahead** if used as a trading feature; the default is causal ffill.
+Macro overlays (`macro/align.py::as_daily_reindex`) are **not** bar feeds: they ffill (default) a lower-frequency series onto a UTC calendar. `method='bfill'` raises `ValueError` (look-ahead if used as a trading feature); `method=None` leaves NaNs on non-observation days.
 
 **Dataset audit** (`data/audit.py`): structural FAIL/WARN/PASS on OHLC inequalities, NaNs, tz, duplicates, gaps-vs-freq. Corporate-action, delisting, and survivorship checks are **documentation gates** (WARN until the caller sets boolean flags). They do not ingest CA or delist files.
 

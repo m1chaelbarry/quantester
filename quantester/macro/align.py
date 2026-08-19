@@ -17,11 +17,20 @@ def as_daily_reindex(
     onto each trading day (standard exogenous-feature join). Pass
     ``method=None`` for a left join with NaNs on non-observation days.
 
+    ``method='bfill'`` is rejected: pulling a later print onto earlier bars is
+    look-ahead if the aligned series is used as a trading feature.
+
     Both sides are normalized to timezone-aware UTC before aligning. This is a
     calendar join only — no quantitative formula to notebook-verify.
     """
-    if method not in {"ffill", "bfill", None}:
-        raise ValueError("method must be 'ffill', 'bfill', or None")
+    if method == "bfill":
+        raise ValueError(
+            "method='bfill' is look-ahead on a trading-feature join: a later "
+            "macro print would leak into earlier bars. Use method='ffill' "
+            "(causal) or method=None (NaNs on non-observation days)."
+        )
+    if method not in {"ffill", None}:
+        raise ValueError("method must be 'ffill' or None")
 
     cal = pd.DatetimeIndex(calendar)
     if cal.tz is None:

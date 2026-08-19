@@ -205,6 +205,16 @@ def test_as_daily_reindex_ffill():
     assert list(aligned.values) == [1.0, 1.0, 2.0, 2.0, 2.0]
 
 
+def test_as_daily_reindex_rejects_bfill():
+    cal = pd.date_range("2024-01-01", periods=3, freq="D", tz="UTC")
+    series = pd.Series(
+        [1.0],
+        index=pd.to_datetime(["2024-01-03"]).tz_localize("UTC"),
+    )
+    with pytest.raises(ValueError, match="look-ahead"):
+        as_daily_reindex(cal, series, method="bfill")
+
+
 def test_load_world_bank_parses_v2(monkeypatch):
     payload = [
         {"page": 1},
