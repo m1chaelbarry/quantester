@@ -3,11 +3,22 @@
 - Dollar bars: sample whenever a constant market value has exchanged hands,
   robust to price volatility and corporate actions (Report 2 section 3).
 - Tick imbalance bars (TIBs): b_t = b_{t-1} if dp == 0 else sign(dp);
-  theta_T = sum(b_t); expected imbalance E_0[theta_T] = E_0[T] * (2P[b=1] - 1)
-  with E_0[T] and P[b=1] estimated as EWMAs of prior bars' values; a bar is
-  emitted at T* = argmin{ |theta_T| >= E_0[theta_T] }.
+  theta_T = sum(b_t); expected imbalance E_0[theta_T] = E_0[T] * (2P[b=1] - 1);
+  a bar is emitted at T* = argmin{ |theta_T| >= E_0[theta_T] }.
 - Dollar/volume imbalance bars: theta_T = sum(b_t v_t);
-  E_0[theta_T] = E_0[T] * (2v+ - E_0[v_t]) via EWMA of b_t v_t.
+  E_0[theta_T] = E_0[T] * (2v+ - E_0[v_t]) — the composite EWMA of signed
+  sizes IS the estimator (2v+ - E[v] = E[b_t v_t]); P[b=1] and the conditional
+  sizes define it but are not EWMA'd separately.
+
+Estimator units (3rd-cross-reference synthesis §1.6, research ticket 02):
+both EWMA inputs are bar-frequency — E_0[T] is the EWMA of completed bar
+lengths and the expected imbalance is |EWMA of per-bar mean signed flow|
+(theta_T / T of each prior bar), each with ``span`` measured in BARS. The
+threshold is formed once at each bar's start (E_0 conditions on completed
+bars only). Deviations the book leaves unspecified and this module keeps,
+documented: a constant ``max(initial_expected_len, 1.0)`` threshold until
+``warmup`` bars complete, and a final flush of the incomplete trailing
+subset so every tick lands in some bar.
 
 Input ticks: pd.DataFrame indexed by datetime with columns price, volume.
 Output bars: pd.DataFrame with open/high/low/close/volume indexed by bar-close time.
@@ -93,25 +104,26 @@ def _imbalance_bars(ticks: pd.DataFrame, weighted: bool, span: int, warmup: int,
     flow = b * volumes if weighted else b
 
     bars = []
-    bar_lengths: list = []
-    bar_flows: list = []  # per-tick flow values of completed bars (for EWMA of imbalance)
+    bar_lengths: list = []      # one tick-count per completed bar
+    bar_imbalances: list = []   # one mean signed flow (theta_T / T) per bar
 
     start = 0
     theta = 0.0
+    # E_0 is evaluated at the start of each bar from completed bars only; the
+    # threshold is therefore frozen while a bar accumulates.
+    threshold = max(initial_expected_len, 1.0)
     for t in range(len(ticks)):
         theta += flow[t]
         length = t - start + 1
-        if len(bar_lengths) >= warmup:
-            expected_len = _ewma_last(bar_lengths, span)
-            expected_imb = abs(_ewma_last(bar_flows, span))
-            threshold = max(expected_len * expected_imb, 1e-12)
-        else:
-            threshold = max(initial_expected_len, 1.0)
         if abs(theta) >= threshold:
             chunk = ticks.iloc[start : t + 1]
             bars.append(_make_bar(chunk))
             bar_lengths.append(length)
-            bar_flows.extend(flow[start : t + 1].tolist())
+            bar_imbalances.append(theta / length)
+            if len(bar_lengths) >= warmup:
+                expected_len = _ewma_last(bar_lengths, span)
+                expected_imb = abs(_ewma_last(bar_imbalances, span))
+                threshold = max(expected_len * expected_imb, 1e-12)
             start = t + 1
             theta = 0.0
     if start < len(ticks):

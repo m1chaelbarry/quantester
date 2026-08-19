@@ -23,14 +23,32 @@ from ..events import SignalEvent
 from .base import Strategy
 
 
-def triple_barrier_labels(close: pd.Series, events: pd.DataFrame,
+def triple_barrier_labels(bars, events: pd.DataFrame,
                           tp_pct: float, sl_pct: float, max_holding: int) -> pd.Series:
     """Binary meta-labels for primary-model events.
+
+    bars: OHLC DataFrame (columns high/low/close) for first-touch labeling on
+    the price PATH (AFML ch.3, notebook-verified): the take-profit barrier
+    reads the favorable extreme (high for longs, low for shorts) and the
+    stop-loss barrier the adverse extreme, so intra-bar wick touches count.
+    A bare close Series keeps the legacy close-only path (under-detects both
+    barriers — retained for callers that genuinely hold closes only).
+
+    Same-bar tie (both barriers wicked by one bar): the intra-bar order is
+    unobservable in OHLC data, so the stop-loss wins — pessimistic labels,
+    no fabricated precision (implementation choice, not covered by the
+    notebook).
 
     events: DataFrame with columns [t0 (entry timestamp), side (+1/-1)].
     Returns Series of y in {0, 1} indexed like events: 1 if the primary signal
     was correct under the triple-barrier outcome.
     """
+    if isinstance(bars, pd.DataFrame):
+        close = bars["close"]
+        high, low = bars["high"], bars["low"]
+    else:
+        close = bars
+        high = low = None
     labels = {}
     idx = close.index
     pos_of = {ts: i for i, ts in enumerate(idx)}
@@ -41,14 +59,20 @@ def triple_barrier_labels(close: pd.Series, events: pd.DataFrame,
         tp = entry * (1 + side * tp_pct)
         sl = entry * (1 - side * sl_pct)
         end = min(i0 + max_holding, len(idx) - 1)
-        path = close.iloc[i0 + 1 : end + 1]
-        hit_tp = (path >= tp) if side > 0 else (path <= tp)
-        hit_sl = (path <= sl) if side > 0 else (path >= sl)
+        path_close = close.iloc[i0 + 1 : end + 1]
+        if high is not None:
+            path_high = high.iloc[i0 + 1 : end + 1]
+            path_low = low.iloc[i0 + 1 : end + 1]
+            hit_tp = (path_high >= tp) if side > 0 else (path_low <= tp)
+            hit_sl = (path_low <= sl) if side > 0 else (path_high >= sl)
+        else:
+            hit_tp = (path_close >= tp) if side > 0 else (path_close <= tp)
+            hit_sl = (path_close <= sl) if side > 0 else (path_close >= sl)
         y = 0
-        if hit_tp.any() and (not hit_sl.any() or hit_tp.idxmax() <= hit_sl.idxmax()):
+        if hit_tp.any() and (not hit_sl.any() or hit_tp.idxmax() < hit_sl.idxmax()):
             y = 1
         elif not hit_sl.any():
-            final = float(path.iloc[-1]) if len(path) else entry
+            final = float(path_close.iloc[-1]) if len(path_close) else entry
             y = 1 if (final - entry) * side > 0 else 0
         labels[event_id] = y
     return pd.Series(labels)
@@ -127,13 +151,17 @@ class MetaLabelingStrategy(Strategy):
                 )
             )
 
-    def fit_secondary(self, features: pd.DataFrame, close: pd.Series,
+    def fit_secondary(self, features: pd.DataFrame, bars,
                       events: pd.DataFrame, tp_pct: float, sl_pct: float,
                       max_holding: int):
-        """Build triple-barrier labels for the primary events and fit the model."""
+        """Build triple-barrier labels for the primary events and fit the model.
+
+        ``bars`` is an OHLC DataFrame (first-touch path labeling, preferred)
+        or a bare close Series (legacy close-only labeling).
+        """
         if self.model is None:
             raise ValueError("No secondary model configured.")
-        y = triple_barrier_labels(close, events, tp_pct, sl_pct, max_holding)
+        y = triple_barrier_labels(bars, events, tp_pct, sl_pct, max_holding)
         self.model.fit(features.loc[y.index], y)
         return y
 

@@ -93,6 +93,45 @@ def test_triple_barrier_labels():
     assert triple_barrier_labels(falling, short_events, 0.05, 0.05, 20).iloc[0] == 1
 
 
+def test_triple_barrier_labels_high_low_path():
+    """AFML ch.3: barriers are first-touch on the price PATH, not close-only
+    (synthesis §1.7). A wick through the take-profit must label the event
+    correct even when every close stays below the barrier."""
+    idx = pd.bdate_range("2024-01-01", periods=5, tz="UTC")
+    # tp = 100 * 1.011 = 101.1: never reached by a close, wicked at idx[2].
+    close = pd.Series([100.0, 100.5, 101.0, 100.2, 99.9], index=idx)
+    bars = pd.DataFrame(
+        {
+            "high": close + 0.3,   # high[2] = 101.3 >= tp
+            "low": close - 0.2,    # never near sl = 98.9
+            "close": close,
+        },
+        index=idx,
+    )
+    events = pd.DataFrame({"t0": [idx[0]], "side": [1]})
+    y_close = triple_barrier_labels(close, events, 0.011, 0.011, 4)
+    assert y_close.iloc[0] == 0  # close-only: vertical barrier, final < entry
+    y_path = triple_barrier_labels(bars, events, 0.011, 0.011, 4)
+    assert y_path.iloc[0] == 1  # high/low path: TP touched first
+
+
+def test_triple_barrier_labels_same_bar_tie_is_conservative():
+    """Both barriers wicked in one bar: the intra-bar order is unobservable
+    in OHLC, so the stop-loss wins (pessimistic labels, no free precision)."""
+    idx = pd.bdate_range("2024-01-01", periods=3, tz="UTC")
+    bars = pd.DataFrame(
+        {
+            "high": [100.0, 101.3, 100.0],   # tp = 101.1 wicked at idx[1]
+            "low": [100.0, 98.5, 99.0],      # sl = 98.9 also wicked at idx[1]
+            "close": [100.0, 100.0, 99.5],
+        },
+        index=idx,
+    )
+    events = pd.DataFrame({"t0": [idx[0]], "side": [1]})
+    y = triple_barrier_labels(bars, events, 0.011, 0.011, 2)
+    assert y.iloc[0] == 0
+
+
 def test_meta_labeling_scales_strength(ohlc):
     from quantester.data.csv_handler import HistoricCSVDataHandler
 

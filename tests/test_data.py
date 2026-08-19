@@ -88,6 +88,35 @@ def test_tick_imbalance_bars_structure():
     assert bars["close"].iloc[-1] == pytest.approx(ticks["price"].iloc[-1])
 
 
+def test_tick_imbalance_bars_bar_frequency_ewma():
+    """AFML ch.2 estimator: E_0[T] and the expected imbalance are BOTH
+    bar-frequency EWMAs (one observation per completed bar). The pre-fix code
+    EWMA'd concatenated per-tick flows with the same span, remembering ~span
+    ticks instead of ~span bars (3rd-cross-ref synthesis §1.6, research 02).
+
+    Hand-computed trace (span=2, warmup=1, initial_expected_len=2), with
+    b = [+1, +1, -1, +1, +1, +1, +1, +1, +1, +1]:
+    - bars 1: cap 2 -> [t0,t1], len 2, mean imb 1.0
+      -> threshold = EWMA([2]) * |EWMA([1.0])| = 2
+    - bar 2: [t2..t5] (theta dips to -1 then climbs to +2), len 4, imb 0.5
+      -> threshold = EWMA([2,4]) * |EWMA([1.0,0.5])| = 3.5 * 0.625 = 2.1875
+    - bar 3: [t6..t8], theta reaches 3 >= 2.1875, len 3
+    - trailing tick t9 never reaches the next threshold -> flushed (len 1)
+    The tick-unit EWMA (pre-fix) would emit bar 3 at length 4 instead of 3.
+    """
+    signs = [1, 1, -1, 1, 1, 1, 1, 1, 1, 1]
+    prices = [100.0]
+    for s in signs[1:]:
+        prices.append(prices[-1] + 0.5 * s)
+    idx = pd.date_range("2024-01-01", periods=len(signs), freq="1min", tz="UTC")
+    ticks = pd.DataFrame({"price": prices, "volume": 1.0}, index=idx)
+
+    bars = tick_imbalance_bars(ticks, span=2, warmup=1, initial_expected_len=2.0)
+    assert list(bars["volume"]) == [2.0, 4.0, 3.0, 1.0]
+    # Every emitted bar's close is the last tick inside it.
+    assert bars["close"].iloc[-1] == pytest.approx(prices[-1])
+
+
 def test_synthetic_ohlcv_ito_drift_correction():
     """GBM fixture must grow at rate mu in PRICE expectation (synthesis §1.11):
     log-increments average (mu - 0.5*sigma**2)/periods_per_year, so that
