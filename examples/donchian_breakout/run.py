@@ -69,7 +69,7 @@ def main():
     dd = max_drawdown(equity)
     print(f"bars={len(df)}  trades={len(portfolio.trades)}  fills={len(portfolio.fills)}")
     print(f"total return={equity.iloc[-1] / equity.iloc[0] - 1:.2%}")
-    print(f"sharpe_{PERIODS}={annualized_sharpe(equity, periods_per_year=PERIODS):.3f}")
+    print(f"sharpe_measured={annualized_sharpe(equity):.3f}")
     print(f"max_dd={dd['max_drawdown']:.2%}")
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

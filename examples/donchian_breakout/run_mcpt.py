@@ -92,7 +92,7 @@ def _mcpt_worker(seed: int) -> dict:
     perm["volume"] = _DF["volume"].to_numpy()
     eq = backtest(perm).equity_curve
     return {
-        "sharpe": float(annualized_sharpe(eq, periods_per_year=PERIODS)),
+        "sharpe": float(annualized_sharpe(eq)),
         "ret": float(eq.iloc[-1] / eq.iloc[0] - 1.0),
         "bh": float(perm["close"].iloc[-1] / perm["close"].iloc[0] - 1.0),
     }
@@ -175,7 +175,7 @@ def main():
     print("  (event-driven re-runs; no vectorized twin for this strategy)")
     _DF = window
     original_sharpe = float(
-        annualized_sharpe(net_w.equity_curve, periods_per_year=PERIODS)
+        annualized_sharpe(net_w.equity_curve)
     )
     original_ret = float(
         net_w.equity_curve.iloc[-1] / net_w.equity_curve.iloc[0] - 1.0
@@ -226,7 +226,7 @@ def main():
                     label=f"original {original_sharpe:+.3f}")
     axes[1].axvline(0.0, color="k", lw=0.8)
     axes[1].set_title(f"Protocol II MCPT  p={p_value:.3f} ({verdict})")
-    axes[1].set_xlabel(f"Sharpe (periods={PERIODS})")
+    axes[1].set_xlabel("Sharpe (measured periods/yr)")
     axes[1].legend(fontsize=8)
     fig.tight_layout()
     out = OUTPUT_DIR / "donchian_breakout_mcpt.png"

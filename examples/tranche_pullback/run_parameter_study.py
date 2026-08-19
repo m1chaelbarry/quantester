@@ -108,7 +108,7 @@ def _trial_worker(params: dict) -> dict:
     years = len(equity) / PERIODS
     return {
         "params": params,
-        "sharpe365": annualized_sharpe(equity, periods_per_year=PERIODS),
+        "sharpe_ann": annualized_sharpe(equity),
         "sharpe_daily": float(rets.mean() / rets.std()) if rets.std() > 0 else 0.0,
         "cagr": float((equity.iloc[-1] / equity.iloc[0]) ** (1.0 / years) - 1.0),
         "max_dd": max_drawdown(equity)["max_drawdown"],
@@ -133,7 +133,7 @@ def _mc_worker(seed: int) -> dict:
     )
     return {
         "seed": seed,
-        "sharpe365": annualized_sharpe(equity, periods_per_year=PERIODS),
+        "sharpe_ann": annualized_sharpe(equity),
         "cagr": float((equity.iloc[-1] / equity.iloc[0]) ** (1.0 / years) - 1.0),
         "max_dd": max_drawdown(equity)["max_drawdown"],
         "total_return": float(equity.iloc[-1] / equity.iloc[0] - 1.0),
@@ -165,7 +165,7 @@ def main():
         registry.log_trial(params=r["params"], sharpe=r["sharpe_daily"],
                            mean=None, std=None, skew=r["skew"], kurt=r["kurt"],
                            n_obs=r["n_obs"], run_id="wide_grid")
-    sharpes = np.array([r["sharpe365"] for r in results])
+    sharpes = np.array([r["sharpe_ann"] for r in results])
     order = np.argsort(sharpes)[::-1]
     print(f"\nSharpe(365) across trials: median {np.median(sharpes):+.3f}  "
           f"IQR [{np.percentile(sharpes, 25):+.3f}, "
@@ -215,11 +215,11 @@ def main():
         mc = pool.map(_mc_worker, [MC_SEED_BASE + i for i in range(N_MC_REPS)])
     print(f"MC complete in {time.perf_counter() - t0:.0f}s")
 
-    mc_sharpe = np.array([r["sharpe365"] for r in mc])
+    mc_sharpe = np.array([r["sharpe_ann"] for r in mc])
     mc_cagr = np.array([r["cagr"] for r in mc])
     mc_dd = np.array([r["max_dd"] for r in mc])
     mc_bh = np.array([r["bh_sharpe365"] for r in mc])
-    realized = results[spec_rank]["sharpe365"]
+    realized = results[spec_rank]["sharpe_ann"]
     p_no_edge = float((mc_sharpe <= 0).mean())
     pbeat_bh = float((mc_sharpe > mc_bh).mean())
     pct = np.percentile(mc_sharpe, [5, 25, 50, 75, 95])
@@ -238,7 +238,7 @@ def main():
     # ------------------------------------------------------------- figure
     fig, axes = plt.subplots(1, 2, figsize=(13, 5))
     sub = [(r["params"]["atr_spacing"], r["params"]["stop_atr_mult"],
-            r["sharpe365"]) for r in results if r["params"]["exit_window"] == 5]
+            r["sharpe_ann"]) for r in results if r["params"]["exit_window"] == 5]
     sp = sorted(set(s for s, _, _ in sub))
     st = sorted(set(x for _, x, _ in sub))
     grid_sharpe = np.full((len(sp), len(st)), np.nan)

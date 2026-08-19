@@ -119,7 +119,7 @@ def summarize(equity: pd.Series, portfolio: PortfolioManager | None = None) -> d
     row = {
         "ret": float(equity.iloc[-1] / equity.iloc[0] - 1.0),
         "cagr": float((equity.iloc[-1] / equity.iloc[0]) ** (1.0 / years) - 1.0),
-        "sharpe": annualized_sharpe(equity, periods_per_year=PERIODS),
+        "sharpe": annualized_sharpe(equity),
         "max_dd": max_drawdown(equity)["max_drawdown"],
         "trades": len(portfolio.trades) if portfolio is not None else None,
     }
