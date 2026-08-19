@@ -87,10 +87,13 @@ class HedgeRatioSizer:
         q_X = sign(signal_type) * hedge_ratio * |q_primary|
 
     so a long-spread entry (LONG Y, SHORT X with hedge_ratio beta) books
-    q_X = -beta * q_Y — dollar-neutral in the cointegrating residual, per
-    Kaufman TSM / Chan pairs sizing (synthesis §1.13). The hedge leg is NOT
-    dollar-sized off its own price: independent PercentEquity sizing of both
-    legs breaks the residual's dollar neutrality.
+    q_X = -beta * q_Y — the cointegrating (unit-ratio) hedge per Kaufman TSM
+    / Chan pairs sizing (synthesis §1.13). The hedge leg is NOT sized off its
+    own price: independent PercentEquity sizing of both legs breaks the
+    cointegrating relationship the spread trades. ``base_sizer`` must be an
+    equity-style sizer (PercentEquity/FixedUnit); a stop-distance sizer
+    (FractionalRiskSizer) has no stop on the synthetic primary probe and
+    will refuse.
 
     The hedge signal must carry ``hedge_ratio=beta_t`` (e.g. attached by
     PairsTradingStrategy from its rolling OLS fit). The hedge leg's strength

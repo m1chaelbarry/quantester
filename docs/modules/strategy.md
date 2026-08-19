@@ -149,9 +149,10 @@ hourly both-sides BTC is friction-dominated (kept as a negative control).
 - **Exits**: `SMA(exit_window)` mean reversion; opposite Donchian trail;
   protective floor at entry ∓ `stop_atr_mult × ATR`. Default: the touch is
   observed at close and exits delay-1 at the next open. Opt-in
-  `resting_stops=True`: the floor rests on the ledger as a `STOP` order from
-  the latch bar and fills on the touch bar at `min/max(stop, open)` — one
-  bar earlier, at the stop level; non-stop exits purge it.
+  `resting_stops=True`: the floor is placed as a `STOP` order at the latch
+  bar's close, live from the next bar, and fills on the touch bar at
+  `min/max(stop, open)` — one bar earlier, at the stop level; non-stop
+  exits purge it. A touch on the latch bar itself still exits delay-1.
 - No vectorized twin — validate with Protocol II MCPT / block-bootstrap.
 
 ```python

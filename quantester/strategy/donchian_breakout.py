@@ -26,10 +26,12 @@ Mathematical model (all levels from closes/highs/lows under the firewall):
   at close and the exit is delay=1 at the **next bar's open** (OHLC
   backtests must not fill the same bar's close after observing that bar's
   extremes — that hybrid is not live-tradable without an intrabar event).
-  Opt-in ``resting_stops=True`` (synthesis §5.5): the floor rests on the
-  execution ledger as a STOP order from the latch bar, filling on the touch
-  bar at min/max(stop, open) — one bar earlier and at the stop level, with
-  gap-through honored (never the guaranteed stop); non-stop exits purge it.
+  Opt-in ``resting_stops=True`` (synthesis §5.5): the floor is placed as a
+  STOP order at the latch bar's close, live from the next bar, filling on
+  the touch bar at min/max(stop, open) — one bar earlier than delay-1 and
+  at the stop level, with gap-through honored (never the guaranteed stop);
+  non-stop exits purge it. A touch on the latch bar itself (before any stop
+  could rest) still uses the delay-1 exit.
 - Trailing stop: opposite 10-period Donchian boundary from prior bars
   (long: min Low_{t-1..t-10}; short: max High_{t-1..t-10}); close breach exits
   at the next open (delay=1).
