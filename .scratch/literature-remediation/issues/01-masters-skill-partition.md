@@ -25,3 +25,13 @@ Write findings to [`../research/01-masters-skill-partition.md`](../research/01-m
 Against *Assessing* companion `MC_TRAIN.CPP`, Ability is \(R_{\mathrm{unbiased}}-B_{\mathrm{perm}}\) (mean permuted inherent bias). Repo `trend_bias_skill` uses \(R_{\mathrm{unbiased}}-B_{\mathrm{orig}}\). That is a real *Assessing* discrepancy, not a naming mix-up. The same Skill line **does** match Masters *Testing and Tuning* `MCPT_TRN.CPP`. Notebook-verified identities follow TTMTS, not *Assessing*. Printed p.276 prose was not available; formulas are from the official Apress listing.
 
 Detail: [research/01-masters-skill-partition.md](../research/01-masters-skill-partition.md).
+
+## Product decision
+
+**KEEP TTMTS** `Skill = R_{\mathrm{unbiased}} - B_{\mathrm{orig}}` as the engine formula (notebook **D6**, TTMTS ch. 7). Do not switch Ability to \(R_{\mathrm{unbiased}}-B_{\mathrm{perm}}\). Document the *Assessing* discrepancy in the module docstring; do not treat it as a defect.
+
+No implementation ticket. MCPT still shuffles **log** price changes; that is a documented exception vs simple tearsheet Sharpe ([Which Sharpe representation is canonical for tearsheet, MCPT, and DSR?](05-canonical-sharpe.md)), not a convert-on-the-boundary of the same function.
+
+## Comments
+
+- 2026-08-19 notebook ruling **D6**. Research fact stands; product call is KEEP TTMTS.

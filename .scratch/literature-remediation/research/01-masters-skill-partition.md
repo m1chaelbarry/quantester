@@ -12,6 +12,8 @@
 
 The last line is the Ability analogue: it subtracts **mean permuted inherent bias**, not the original-run inherent bias. The original-run quantity is saved only for display and is commented “not really important.”
 
+**Product call (2026-08-19 notebook D6):** KEEP the TTMTS Skill line in engine code. See [What does Masters Assessing specify for the Trend/Bias/Skill partition?](../issues/01-masters-skill-partition.md).
+
 Quantester `trend_bias_skill` implements \(\mathrm{Skill}=R_{\mathrm{unbiased}}-B_{\mathrm{orig}}\). Against *Assessing*, that is a **real formula discrepancy**, not a \(B_{\mathrm{orig}}\) vs “mean inherent bias” naming mix-up.
 
 The same Skill formula **does** match Masters’ later trading-system listing (*Testing and Tuning Market Trading Systems*, `MCPT_TRN.CPP`): \(\mathrm{skill}=\mathrm{unbiased\_return}-\mathrm{original\_trend\_component}\). The repo’s “notebook-verified” claim asserts the TTMTS-style identities, not the *Assessing* Ability line.
