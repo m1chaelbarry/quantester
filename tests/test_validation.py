@@ -85,6 +85,71 @@ def test_cpcv_n_paths_matches_binomial_identity():
             assert int(k_test / n_groups * cpcv.n_splits) != cpcv.n_paths
 
 
+# --------------------------------------------------------------------------
+# D8 (ticket 24): embargo length in integer bars, min(lookback, lookahead) - 1
+# --------------------------------------------------------------------------
+
+
+def test_embargo_integer_bars_from_lookback_lookahead():
+    """lookback=10, lookahead=5 -> exactly min(10, 5) - 1 = 4 bars embargoed
+    after each test block (Masters shrink), no more and no fewer."""
+    X = _X(30)  # 3 folds of 10
+    t1 = pd.Series(X.index, index=X.index)  # zero-horizon labels
+    cv = PurgedKFold(n_splits=3, t1=t1, lookback=10, lookahead=5)
+    for train_idx, test_idx in cv.split(X):
+        embargo_end = test_idx[-1] + 4
+        dropped = set(range(test_idx[-1] + 1, min(embargo_end, len(X) - 1) + 1))
+        assert dropped.isdisjoint(set(train_idx))
+        past = embargo_end + 1  # one bar past the window is allowed back
+        if past < len(X):
+            assert past in set(train_idx) | set(test_idx)
+
+
+def test_embargo_single_sided_horizon():
+    """Only lookback set -> lookback - 1 bars; same for lookahead alone."""
+    X = _X(30)
+    t1 = pd.Series(X.index, index=X.index)
+    cv = PurgedKFold(n_splits=3, t1=t1, lookback=6)
+    train_idx, test_idx = next(cv.split(X))
+    assert set(range(10, 15)).isdisjoint(set(train_idx))  # 5 = 6 - 1 bars
+    assert 15 in set(train_idx)
+
+
+def test_embargo_irregular_calendar_positions_not_median_dt():
+    """A weekend/hole in the index must not stretch the embargo: windows are
+    integer index positions, never median-Δt time spans (D8)."""
+    idx = pd.date_range("2024-01-01", periods=10, freq="D").append(
+        pd.date_range("2024-01-15", periods=10, freq="D")
+    )  # 5-day hole between positions 9 and 10
+    X = pd.DataFrame({"f": np.arange(20, dtype=float)}, index=idx)
+    t1 = pd.Series(X.index, index=X.index)
+    cv = PurgedKFold(n_splits=2, t1=t1, embargo_bars=3)
+    train_idx, test_idx = next(cv.split(X))  # test = positions 0..9
+    # Positions 10, 11, 12 across the hole are embargoed BY POSITION; a
+    # median-Δt window (3 days) would embargo none of them (next bar is +5d).
+    assert set(range(10, 13)).isdisjoint(set(train_idx))
+    assert set(train_idx) == set(range(13, 20))
+
+
+def test_pct_embargo_override_still_available():
+    """de Prado's ~0.01T stays an explicit override, floored to integer bars."""
+    X = _X(30)
+    t1 = pd.Series(X.index, index=X.index)
+    cv = PurgedKFold(n_splits=3, t1=t1, pct_embargo=0.1)  # int(0.1*30) = 3 bars
+    for train_idx, test_idx in cv.split(X):
+        dropped = set(range(test_idx[-1] + 1, min(test_idx[-1] + 3, len(X) - 1) + 1))
+        assert dropped.isdisjoint(set(train_idx))
+
+
+def test_embargo_default_is_zero_bars_not_pct():
+    """The silent 0.01T default is gone (D8): no knobs -> no embargo."""
+    X = _X(120)
+    t1 = pd.Series(X.index, index=X.index)
+    cv = PurgedKFold(n_splits=2, t1=t1)
+    train_idx, test_idx = next(cv.split(X))
+    assert test_idx[-1] + 1 in set(train_idx)  # immediate post-test bar kept
+
+
 def _constructed_pnl():
     """Trial 0 shines in the first half and collapses in the second; the other
     trials are uniformly mediocre -> best in-sample trial fails out-of-sample."""
