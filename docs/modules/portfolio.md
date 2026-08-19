@@ -66,11 +66,14 @@ returning the **target position** (signed). Wire it via
 | `PercentEquitySizer(pct=0.5)` | `± pct × equity × strength / ref_price` (0 on `EXIT`). Compounds with account size. |
 | `FixedUnitSizer(units=100.0)` | `± units × strength` shares. Used for fast-track parity checks. |
 | `FractionalRiskSizer(risk_fraction=0.02)` | `± equity × risk_fraction / stop_distance`. Requires `signal.stop_distance` in price units (e.g. `2 × ATR`). A full stop-out loses ~`risk_fraction` of equity before friction. |
-| `HedgeRatioSizer(primary_symbol, base_sizer=PercentEquitySizer(0.5))` | Primary leg sized by `base_sizer`; every other (hedge) leg gets `sign(signal_type) × hedge_ratio × |q_primary|`, i.e. `q_X = −β·q_Y` for a long spread. Requires `signal.hedge_ratio` on hedge-leg entries (attached by `PairsTradingStrategy`). Cointegrating-residual sizing — the hedge leg is *not* dollar-sized off its own price. |
+| `HedgeRatioSizer(pct=0.5)` | Spread sizing: the dependent leg carries `hedge_ratio=1` (sized `pct × equity / P_Y`); the hedge leg carries `hedge_ratio=β` plus `hedge_ref_price=P_Y`, so `q_X = −β·q_Y`. Independent per-leg percent-equity sizing is not dollar-neutral on a cointegrating residual (synthesis §1.13). Wired by `PairsTradingStrategy`. |
 
-Signals can also carry `stop_price`: the position delta then rests on the
-execution ledger as a `STOP` order instead of a market order (e.g. an `EXIT`
-with `stop_price` is a protective stop sized to the full open position).
+Signals can also carry `stop_price`: the portfolio then rests a flattening
+`STOP` order on the execution ledger alongside the entry (gap-through fills
+at the next available price, never a guaranteed stop). With
+`stop_only=True` the size delta is skipped and only the stop is
+rested/re-placed on the current position — the tranche ladder uses this to
+track its frozen post-fill quantity.
 
 Custom example — cap position by both equity fraction and a volatility target:
 

@@ -19,12 +19,6 @@ Signal protocol (Chan's z-score bands):
 - s_t > +entry_z  -> short spread (SHORT GLD, LONG GDX)
 - |s_t| <= exit_z -> flat both legs
 
-Sizing: hedge-leg entry signals carry ``hedge_ratio=beta_t``. Wire the
-portfolio with ``HedgeRatioSizer(primary_symbol=leg_y)`` for cointegrating-
-residual sizing q_X = -beta_t * q_Y (Kaufman TSM; synthesis §1.13); the
-default PercentEquitySizer sizes each leg independently off its own price,
-which is NOT dollar-neutral in the residual.
-
 Execution window: ``delay=1`` (default) computes signals at bar T's close and
 the engine's State-Based Temporal Firewall fills the resulting orders at bar
 T+1's open, so no same-bar close information can leak into a fill.
@@ -160,7 +154,6 @@ class PairsTradingStrategy(Strategy):
 
         self._state = FLAT
         self._z: list[float] = []          # causal trailing spread residuals
-        self._beta: Optional[float] = None  # latest fitted hedge ratio
         self.history_: list[dict] = []     # diagnostic trail per computed bar
 
     # ------------------------------------------------------------ computation
@@ -197,7 +190,6 @@ class PairsTradingStrategy(Strategy):
         alpha, beta, z = ols_spread(*window)
         if not np.isfinite(z):
             return None
-        self._beta = beta
         self._z.append(z)
         if len(self._z) < self.zscore_window:
             s = None
@@ -218,31 +210,27 @@ class PairsTradingStrategy(Strategy):
     # ---------------------------------------------------------------- signals
 
     def _emit_transition(self, timestamp: pd.Timestamp, events_queue,
-                         target: int) -> None:
-        """Emit simultaneous, opposite leg signals on a state change only.
-
-        Hedge-leg (leg_x) entries carry ``hedge_ratio=beta_t`` so a
-        ``HedgeRatioSizer`` can size q_X = -beta_t * q_Y; sizers that do not
-        read the field are unaffected.
-        """
+                         target: int, *, beta: float, price_y: float) -> None:
+        """Emit simultaneous, opposite leg signals on a state change only."""
         if target == self._state:
             return
         if target == FLAT:
-            legs = [(self.leg_y, EXIT), (self.leg_x, EXIT)]
+            legs = [(self.leg_y, EXIT, 1.0), (self.leg_x, EXIT, 1.0)]
         elif target == LONG_SPREAD:
-            legs = [(self.leg_y, LONG), (self.leg_x, SHORT)]
+            legs = [(self.leg_y, LONG, 1.0), (self.leg_x, SHORT, abs(beta))]
         else:
-            legs = [(self.leg_y, SHORT), (self.leg_x, LONG)]
-        for symbol, signal_type in legs:
-            hedge_ratio = (
-                self._beta
-                if symbol == self.leg_x and signal_type in (LONG, SHORT)
-                else None
-            )
+            legs = [(self.leg_y, SHORT, 1.0), (self.leg_x, LONG, abs(beta))]
+        for symbol, signal_type, ratio in legs:
             events_queue.put(
-                SignalEvent(timestamp, symbol, signal_type,
-                            strength=1.0, delay=self.delay,
-                            hedge_ratio=hedge_ratio)
+                SignalEvent(
+                    timestamp,
+                    symbol,
+                    signal_type,
+                    strength=1.0,
+                    delay=self.delay,
+                    hedge_ratio=ratio,
+                    hedge_ref_price=price_y,
+                )
             )
         self._state = target
 
@@ -254,9 +242,13 @@ class PairsTradingStrategy(Strategy):
         s = self._update_spread(event.timestamp)
         if s is None:
             return
+        beta = float(self.history_[-1]["beta"])
+        price_y = float(event.bars[self.leg_y]["close"])
         self._emit_transition(
             event.timestamp, events_queue,
             next_spread_state(self._state, s, self.entry_z, self.exit_z),
+            beta=beta,
+            price_y=price_y,
         )
 
     # ------------------------------------------------------- vectorized twin

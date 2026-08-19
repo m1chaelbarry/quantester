@@ -16,6 +16,7 @@ from .execution import CostModel, SimulatedExecutionHandler
 from .portfolio import (
     FixedUnitSizer,
     FractionalRiskSizer,
+    HedgeRatioSizer,
     PercentEquitySizer,
     PortfolioManager,
 )
@@ -70,6 +71,7 @@ __all__ = [
     "FixedUnitSizer",
     "PercentEquitySizer",
     "FractionalRiskSizer",
+    "HedgeRatioSizer",
     # Built-in strategies
     "BuyAndHoldStrategy",
     "MovingAverageCrossStrategy",

@@ -225,31 +225,6 @@ def test_cancel_order_purges_resting_book():
     assert len(queue) == 0
 
 
-def test_cancel_with_purge_types_keeps_other_orders():
-    """A scoped CANCEL (purge_types) removes only the named order types —
-    a strategy replacing its protective stop must not kill a resting entry
-    ladder on the same symbol (synthesis §5.5 tranche wiring)."""
-    execution = SimulatedExecutionHandler(CostModel(**_ZERO))
-    queue = _Queue()
-    execution.on_market(_market(T0), queue)
-    limit = OrderEvent(T0, "AAA", LIMIT_ORDER, 10, BUY,
-                       earliest_fill_time=T2, limit_price=99.5)
-    stop = OrderEvent(T0, "AAA", STOP_ORDER, 10, SELL,
-                      earliest_fill_time=T0, stop_price=95.0)     # parked
-    execution.execute_order(limit, queue)
-    execution.execute_order(stop, queue)
-    execution.execute_order(
-        OrderEvent(T0, "AAA", CANCEL_ORDER, 0, BUY, earliest_fill_time=T0,
-                   purge_types=frozenset({STOP_ORDER})),
-        queue,
-    )
-    # The stop is gone; the limit survived and still fills when touched.
-    execution.on_market(_market(T2), queue)
-    execution.on_market(_close(T2), queue)  # default BAR low 99.0 <= 99.5
-    assert len(queue) == 1
-    assert queue[0].fill_price == pytest.approx(99.5)  # the limit, filled
-
-
 def test_moc_fills_at_close_same_bar_only():
     """Market-on-close: fills at the close print of its own bar, and a stale
     MOC expires instead of filling at a later close (live auction semantics)."""

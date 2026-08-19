@@ -25,13 +25,6 @@ result = fast_backtest(df, target, CostModel(),
 result.equity, result.sharpe, result.total_return
 ```
 
-`fast_backtest` also takes `periods_per_year=252.0` (explicit annualization
-of `result.sharpe`) and `sharpe_mode="legacy" | "tearsheet"`. The tearsheet
-mode evaluates `analytics.performance.annualized_sharpe` (log returns) on the
-same equity series, so an MCPT objective can rank exactly the statistic the
-tearsheet reports; the default keeps the legacy simple-return Sharpe while
-the simple-vs-log representation ruling stays parked (synthesis §4.1/§4.9).
-
 **Parity contract** (asserted by `tests/test_montecarlo.py`): targets decided
 at close T execute at open T+1; fills use the *same* `CostModel` adverse
 adjustments as the event engine; `cash_t = cash_{t-1} − dQ_t·fill −

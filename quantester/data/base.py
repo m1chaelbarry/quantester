@@ -9,18 +9,13 @@ becomes visible.
 
 from __future__ import annotations
 
-import contextlib
-import warnings
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 
 import pandas as pd
 
 
 class DataHandler(ABC):
-    # Seal switch (synthesis §5.2): False warns when source_ohlcv() is called
-    # from inside Strategy.calculate_signals; True raises PermissionError.
-    seal_source_ohlcv: bool = False
-
     @property
     @abstractmethod
     def symbols(self) -> list:
@@ -71,6 +66,20 @@ class DataHandler(ABC):
         """Execution-side lookup of a full bar at a timestamp (None if unavailable)."""
         ...
 
+    @contextmanager
+    def seal_source_ohlcv(self):
+        """Block ``source_ohlcv`` while strategies generate signals.
+
+        Research scripts and post-run analysis keep the accessor; the engine
+        holds this seal only around ``calculate_signals``. Nested seals stay
+        closed until the outermost context exits.
+        """
+        self._source_ohlcv_seal_depth = getattr(self, "_source_ohlcv_seal_depth", 0) + 1
+        try:
+            yield
+        finally:
+            self._source_ohlcv_seal_depth -= 1
+
     def source_ohlcv(self, symbol: str) -> pd.DataFrame:
         """Full loaded OHLCV frame for research scripts (not for live signals).
 
@@ -78,45 +87,25 @@ class DataHandler(ABC):
         Example scripts and post-run analysis should call this instead of
         reaching into private ``_data``.
 
-        Implementations that expose the raw frame MUST call
-        ``_check_source_ohlcv_access()`` first so firewall violations during
-        signal dispatch are surfaced (warned, or sealed via
-        ``seal_source_ohlcv = True``).
+        Raises ``PermissionError`` when called from ``calculate_signals``.
         """
+        self._ensure_source_ohlcv_unsealed()
+        return self._source_ohlcv(symbol)
+
+    def _ensure_source_ohlcv_unsealed(self) -> None:
+        if getattr(self, "_source_ohlcv_seal_depth", 0) > 0:
+            raise PermissionError(
+                "source_ohlcv() is sealed during calculate_signals; "
+                "read market data with get_latest_bars() / get_current_open() "
+                "under the temporal firewall. source_ohlcv() is for research "
+                "and post-run analysis only."
+            )
+
+    def _source_ohlcv(self, symbol: str) -> pd.DataFrame:
         raise NotImplementedError(
             f"{type(self).__name__} does not expose source_ohlcv(); "
             "use a StreamingDataHandler-based feed or load frames directly."
         )
-
-    @contextlib.contextmanager
-    def signal_scope(self):
-        """Mark Strategy.calculate_signals dispatch on this handler.
-
-        The engine wraps every ``calculate_signals`` call in this scope so
-        that firewall-bypassing raw-frame reads (``source_ohlcv``) can be
-        detected at the exact moment they leak.
-        """
-        depth = getattr(self, "_signal_scope_depth", 0)
-        self._signal_scope_depth = depth + 1
-        try:
-            yield
-        finally:
-            self._signal_scope_depth = depth
-
-    def _check_source_ohlcv_access(self) -> None:
-        """Warn (or raise, when sealed) if called inside ``signal_scope``."""
-        if getattr(self, "_signal_scope_depth", 0) <= 0:
-            return
-        msg = (
-            f"{type(self).__name__}.source_ohlcv() was called from "
-            "Strategy.calculate_signals: the raw frame bypasses the temporal "
-            "firewall (look-ahead risk). Strategies must read through "
-            "get_latest_bars()/get_current_open(); source_ohlcv() is for "
-            "post-run research only."
-        )
-        if getattr(self, "seal_source_ohlcv", False):
-            raise PermissionError(msg)
-        warnings.warn(msg, UserWarning, stacklevel=3)
 
     @property
     @abstractmethod

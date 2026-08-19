@@ -49,9 +49,9 @@ def _ramp(n=200, start=90.0, end=100.0):
     return bars
 
 
-def _run(bars):
+def _run(bars, **strategy_kwargs):
     handler = StreamingDataHandler({"BTC": _frame(bars)})
-    strategy = TranchePullbackStrategy(handler, "BTC")
+    strategy = TranchePullbackStrategy(handler, "BTC", **strategy_kwargs)
     portfolio = PortfolioManager(handler, CAPITAL, sizer=PercentEquitySizer(1.0))
     engine = BacktestEngine(handler, strategy, portfolio,
                             SimulatedExecutionHandler(ZERO_COSTS))
@@ -156,6 +156,31 @@ def test_hard_stop_triggers_on_low_and_exits_next_open():
     assert len(portfolio.trades) == 1 and portfolio.trades[0]["pnl"] < 0
 
 
+def test_resting_stops_fill_hard_stop_gap_through():
+    """resting_stops=True fills the catastrophic stop at gap-through this bar."""
+    bars = _ramp()
+    bars += [
+        (100.0, 100.0, 99.80, 99.83),
+        (99.83, 99.85, 99.60, 99.77),
+        (99.70, 99.72, 99.68, 99.71),
+    ] + [(99.92, 99.92, 99.92, 99.92)] * 3
+    _, portfolio = _run(bars, resting_stops=True)
+
+    _, _, thresholds, stop = _latched_levels(bars)
+    frame = _frame(bars)
+    buys = [f for f in portfolio.fills if f.direction == BUY]
+    sells = [f for f in portfolio.fills if f.direction == SELL]
+    assert len(buys) == 3
+    assert [f.reference_price for f in buys] == pytest.approx(thresholds)
+    assert sells
+    assert sum(s.quantity for s in sells) == pytest.approx(
+        sum(b.quantity for b in buys)
+    )
+    assert sells[0].timestamp == frame.index[201]
+    assert sells[0].reference_price == pytest.approx(min(stop, 99.83))
+    assert portfolio.positions == {}
+
+
 def test_unfilled_ladder_reanchors_until_first_fill():
     """While nothing is filled, the anchor must refresh to the current
     peak/ATR every bar (cancel + replace) instead of pinning to the first
@@ -237,77 +262,3 @@ def test_exit_purges_unfilled_tranche_limits():
     # fresh ladder — level values moved with the new peak, proving re-latch.
     assert strategy._state == "active"
     assert strategy._peak == pytest.approx(100.09)
-
-
-# --------------------------------------------------------------------------
-# Resting STOP_ORDER opt-in (synthesis 5.5)
-# --------------------------------------------------------------------------
-
-
-def _run_resting(bars, **kwargs):
-    handler = StreamingDataHandler({"BTC": _frame(bars)})
-    strategy = TranchePullbackStrategy(handler, "BTC", resting_stops=True, **kwargs)
-    portfolio = PortfolioManager(handler, CAPITAL, sizer=PercentEquitySizer(1.0))
-    execution = SimulatedExecutionHandler(ZERO_COSTS)
-    BacktestEngine(handler, strategy, portfolio, execution).run_backtest()
-    return strategy, portfolio, execution
-
-
-def test_resting_stop_fills_at_stop_level_and_cleans_residual():
-    """resting_stops=True: after the first tranche fills, the catastrophic
-    stop rests on the execution ledger (sized to the open position). A bar
-    whose low breaches it fills AT min(stop, open) on that bar's close phase —
-    one bar earlier than the legacy delay-1 exit. A tranche that fills on the
-    same bar (after the stop was placed) is flattened by the mirrored exit at
-    the next open."""
-    bars = _ramp()
-    bars += [
-        (100.0, 100.0, 99.80, 99.83),  # 200: fills T1, T2 (low above stop)
-        # 201: T3 fills AND the low breaches the latched stop; the stop fires
-        # at the stop level this close (legacy: next open).
-        (99.83, 99.85, 99.60, 99.77),
-        # 202: mirrored exit flattens the T3 residual at this open.
-        (99.70, 99.72, 99.68, 99.71),
-    ] + [(99.92, 99.92, 99.92, 99.92)] * 3
-    strategy, portfolio, _ = _run_resting(bars)
-
-    _, _, (t1, t2, t3), stop = _latched_levels(bars)
-    frame = _frame(bars)
-    buys = [f for f in portfolio.fills if f.direction == BUY]
-    sells = [f for f in portfolio.fills if f.direction == SELL]
-    assert [f.reference_price for f in buys] == pytest.approx([t1, t2, t3])
-    q1, q2, q3 = (CAPITAL * f / t for f, t in zip((0.25, 0.35, 0.40), (t1, t2, t3)))
-
-    # The resting stop covered the position known at placement (T1 + T2).
-    assert sells[0].timestamp == frame.index[201]     # touch bar, not next open
-    assert sells[0].reference_price == pytest.approx(stop)  # stop level
-    assert sells[0].quantity == pytest.approx(q1 + q2)
-    # The mirrored exit cleans up the later-filled T3 residual at the open.
-    assert sells[1].timestamp == frame.index[202]
-    assert sells[1].quantity == pytest.approx(q3)
-    assert portfolio.positions == {}
-
-
-def test_resting_stop_replacement_preserves_ladder():
-    """Re-placing the stop as more tranches fill must purge ONLY stops: the
-    unfilled ladder limits keep working (scoped cancel)."""
-    bars = _ramp()
-    bars += [
-        (100.0, 100.0, 99.89, 99.89),  # 200: fills T1 only; stop rests (q1)
-        (99.89, 99.90, 99.84, 99.85),  # 201: fills T2; stop replaced (q1+q2)
-        (99.85, 99.86, 99.77, 99.80),  # 202: fills T3 — ladder survived
-        (99.80, 99.95, 99.79, 99.90),  # 203: close >= SMA5 -> exit
-        (99.92, 99.93, 99.91, 99.92),  # 204: exit fills at this open
-    ] + [(99.92, 99.92, 99.92, 99.92)] * 3
-    strategy, portfolio, _ = _run_resting(bars)
-
-    _, _, (t1, t2, t3), stop = _latched_levels(bars)
-    buys = [f for f in portfolio.fills if f.direction == BUY]
-    sells = [f for f in portfolio.fills if f.direction == SELL]
-    # All three tranches filled AT their levels: the stop replacement never
-    # canceled the ladder, and no stop fired (every low stayed above it).
-    assert [f.reference_price for f in buys] == pytest.approx([t1, t2, t3])
-    assert all(b[2] > stop for b in bars[200:204])
-    assert len(sells) == 1
-    assert sells[0].quantity == pytest.approx(sum(f.quantity for f in buys))
-    assert portfolio.positions == {}

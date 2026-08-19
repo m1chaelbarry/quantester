@@ -28,7 +28,7 @@ from quantester.data.csv_handler import HistoricCSVDataHandler
 from quantester.engine import BacktestEngine
 from quantester.events import BUY, EXIT, LONG, SELL, SHORT, SignalEvent
 from quantester.execution.simulator import SimulatedExecutionHandler
-from quantester.portfolio.portfolio import PercentEquitySizer, PortfolioManager
+from quantester.portfolio.portfolio import HedgeRatioSizer, PortfolioManager
 from quantester.strategy.base import Strategy
 from quantester.strategy.pairs_trading import (
     FLAT,
@@ -113,7 +113,7 @@ def gross(pair_data):
     handler = HistoricCSVDataHandler(pair_data)
     strategy = RecordingFirewallPairs(handler)  # spec params: 252/20, +/-2.0, 0.5
     portfolio = PortfolioManager(
-        handler, INITIAL_CAPITAL, sizer=PercentEquitySizer(0.5)
+        handler, INITIAL_CAPITAL, sizer=HedgeRatioSizer(0.5)
     )
     execution = OrderTap(ZERO_COST_MODEL)
     BacktestEngine(handler, strategy, portfolio, execution).run_backtest()
@@ -218,6 +218,11 @@ def test_signals_are_simultaneous_and_opposite(gross):
             assert legs["GLD"] == legs["GDX"] == EXIT  # flat both, together
         else:
             assert set(legs.values()) == entries  # opposite directions
+            y_sig = next(s for s in signals if s.symbol == "GLD")
+            x_sig = next(s for s in signals if s.symbol == "GDX")
+            assert y_sig.hedge_ratio == pytest.approx(1.0)
+            assert x_sig.hedge_ratio > 0.0
+            assert x_sig.hedge_ref_price == pytest.approx(y_sig.hedge_ref_price)
 
 
 def test_orders_are_simultaneous_opposite_and_firewall_stamped(gross):
@@ -228,7 +233,14 @@ def test_orders_are_simultaneous_opposite_and_firewall_stamped(gross):
         legs = {o.symbol: o for o in orders}
         assert set(legs) == {"GLD", "GDX"}
         directions = {o.direction for o in orders}
-        assert directions == {BUY, SELL}  # dollar-balanced spread legs
+        assert directions == {BUY, SELL}  # opposite spread legs
+        sigs = [s for s in gross.strategy.emitted if s.timestamp == timestamp]
+        if EXIT not in {s.signal_type for s in sigs}:
+            # q_X = -β q_Y: share ratio equals the X-leg hedge_ratio.
+            x_ratio = next(s.hedge_ratio for s in sigs if s.symbol == "GDX")
+            assert legs["GDX"].quantity / legs["GLD"].quantity == pytest.approx(
+                x_ratio, rel=1e-9
+            )
         for order in orders:
             assert order.quantity > 0
             # Temporal firewall: fill eligibility starts exactly one bar after
@@ -416,102 +428,3 @@ def test_truncate_on_master_calendar_validation(pair_data):
     trimmed = truncate_on_master_calendar(pair_data, 50)
     assert len(trimmed["GLD"]) == 700
     assert trimmed["GLD"].index[-1] == pair_data["GLD"].index[-51]
-
-
-# --------------------------------------------------------------------------
-# HedgeRatioSizer: q_X = -beta * q_Y (synthesis 1.13 / Kaufman TSM)
-# --------------------------------------------------------------------------
-
-
-@pytest.fixture
-def close_phase_book(pair_data):
-    """Handler advanced to a close phase + a portfolio to size against."""
-    handler = HistoricCSVDataHandler(pair_data)
-    handler.prime_data()
-    ts = None
-    for _ in range(6):
-        ts, _ = handler.advance()
-    handler.set_phase("close", ts)
-    portfolio = PortfolioManager(
-        handler, INITIAL_CAPITAL, sizer=PercentEquitySizer(0.5)
-    )
-    return SimpleNamespace(handler=handler, portfolio=portfolio, ts=ts)
-
-
-def test_hedge_ratio_sizer_maps_beta_to_quantities(close_phase_book):
-    from quantester.portfolio.sizers import HedgeRatioSizer
-
-    book = close_phase_book
-    sizer = HedgeRatioSizer("GLD", PercentEquitySizer(0.5))
-    px_y = float(book.handler.get_latest_bars("GLD", 1)["close"].iloc[-1])
-    px_x = float(book.handler.get_latest_bars("GDX", 1)["close"].iloc[-1])
-
-    q_y = sizer(SignalEvent(book.ts, "GLD", LONG, strength=1.0),
-                book.portfolio, px_y)
-    assert q_y == pytest.approx(0.5 * INITIAL_CAPITAL / px_y, rel=1e-12)
-
-    # Hedge leg: quantity follows the PRIMARY leg, scaled by beta, opposite
-    # sign from signal_type — q_X = -beta * q_Y for a long-spread entry.
-    q_x = sizer(
-        SignalEvent(book.ts, "GDX", SHORT, strength=1.0, hedge_ratio=TRUE_BETA),
-        book.portfolio, px_x,
-    )
-    assert q_x == pytest.approx(-TRUE_BETA * q_y, rel=1e-12)
-    # Explicitly NOT independent dollar-sizing on the hedge leg's own price.
-    assert abs(q_x) != pytest.approx(0.5 * INITIAL_CAPITAL / px_x)
-
-
-def test_hedge_ratio_sizer_requires_ratio_on_hedge_leg(close_phase_book):
-    from quantester.portfolio.sizers import HedgeRatioSizer
-
-    book = close_phase_book
-    sizer = HedgeRatioSizer("GLD", PercentEquitySizer(0.5))
-    px_x = float(book.handler.get_latest_bars("GDX", 1)["close"].iloc[-1])
-    with pytest.raises(ValueError, match="hedge_ratio"):
-        sizer(SignalEvent(book.ts, "GDX", SHORT, strength=1.0),
-              book.portfolio, px_x)
-
-
-def test_hedge_ratio_sizer_exit_flattens(close_phase_book):
-    from quantester.portfolio.sizers import HedgeRatioSizer
-
-    book = close_phase_book
-    sizer = HedgeRatioSizer("GLD", PercentEquitySizer(0.5))
-    px_x = float(book.handler.get_latest_bars("GDX", 1)["close"].iloc[-1])
-    assert sizer(SignalEvent(book.ts, "GDX", EXIT), book.portfolio, px_x) == 0.0
-
-
-def test_pairs_run_with_hedge_ratio_sizer_positions_track_beta(pair_data):
-    """End-to-end: with HedgeRatioSizer wired, filled leg quantities satisfy
-    |q_GDX| == beta_entry * |q_GLD| where beta_entry is the strategy's fitted
-    hedge ratio at the entry signal bar (cointegrating-residual sizing)."""
-    from quantester.portfolio.sizers import HedgeRatioSizer
-
-    handler = HistoricCSVDataHandler(pair_data)
-    strategy = RecordingFirewallPairs(handler)
-    portfolio = PortfolioManager(
-        handler, INITIAL_CAPITAL,
-        sizer=HedgeRatioSizer("GLD", PercentEquitySizer(0.5)),
-    )
-    BacktestEngine(handler, strategy, portfolio,
-                   SimulatedExecutionHandler(ZERO_COST_MODEL)).run_backtest()
-
-    hist = portfolio.positions_history
-    active = hist[(hist["GLD"] != 0) & (hist["GDX"] != 0)]
-    assert len(active) > 0, "no spread position was ever established"
-
-    # The strategy must attach the fitted hedge ratio to hedge-leg entries.
-    entries = [
-        s for s in strategy.emitted
-        if s.symbol == "GDX" and s.signal_type in (LONG, SHORT)
-    ]
-    assert entries, "no hedge-leg entry signals emitted"
-    assert all(s.hedge_ratio is not None and s.hedge_ratio > 0 for s in entries)
-
-    # First episode: position appears at the bar after the entry signal.
-    first_active = active.index[0]
-    diag = strategy.diagnostics()
-    signal_bar = diag.index[diag.index < first_active][-1]
-    beta_entry = float(diag.loc[signal_bar, "beta"])
-    ratio = float(-active["GDX"].iloc[0] / active["GLD"].iloc[0])
-    assert ratio == pytest.approx(beta_entry, rel=1e-9)

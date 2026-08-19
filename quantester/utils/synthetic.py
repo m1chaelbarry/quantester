@@ -1,15 +1,10 @@
 """Seeded synthetic OHLCV data for examples and tests.
 
 Geometric Brownian motion closes with intra-bar high/low spreads; volume is
-lognormal. Deterministic under a fixed seed. One symbol's calendar can be made
-strictly shorter (missing bars) to exercise availability masks.
+lognormal. Deterministic under a fixed seed. Close log-increments use the
+Itô drift μ − ½σ² (Hilpisch); ``make_cointegrated_pair`` is unchanged.
 `make_cointegrated_pair` builds a GLD/GDX-like pair with a known hedge ratio
 and a stationary AR(1) log-spread for pairs-trading diagnostics.
-
-Verification status: the GBM Itô drift correction (log-returns centered at
-mu - 0.5*sigma**2 per year so E[S_T] = s0*exp(mu*T)) is not covered by the
-user's notebook — implemented from Hilpisch's Euler GBM (Python for
-Algorithmic Trading; 3rd-cross-reference synthesis §1.11).
 """
 
 from __future__ import annotations
@@ -21,22 +16,19 @@ import pandas as pd
 def make_synthetic_ohlcv(symbol: str = "SYN", n_bars: int = 750, s0: float = 100.0,
                          mu: float = 0.08, sigma: float = 0.20,
                          start: str = "2020-01-01", seed: int = 42,
-                         missing_every: int | None = None,
-                         periods_per_year: float = 252.0) -> pd.DataFrame:
+                         missing_every: int | None = None) -> pd.DataFrame:
     """GBM daily bars. missing_every=k drops every k-th bar (after warmup) to
     simulate illiquid/stress gaps without erasing them from other symbols.
 
-    Log-returns are N((mu - 0.5*sigma**2)/ppy, sigma/sqrt(ppy)): the Itô
-    -0.5*sigma**2 keeps the fixture a martingale at rate ``mu`` in price
-    expectation, E[S_T] = s0*exp(mu*T) (Hilpisch Euler GBM; synthesis §1.11).
-    ``periods_per_year`` is the explicit annualization of the bar calendar
-    (252 = US equity dailies; 24/7 crypto hourly is 8760).
+    Log increments are Hilpisch / Itô GBM: N((μ − ½σ²)/252, σ/√252) so
+    E[log S_T] ≈ (μ − ½σ²)T rather than μT. Not covered by the notebook —
+    implemented from Yves Hilpisch, *Python for Finance*.
     """
     rng = np.random.default_rng(seed)
     dates = pd.bdate_range(start=start, periods=n_bars, tz="UTC")
-    ppy = float(periods_per_year)
-    rets = rng.normal((mu - 0.5 * sigma**2) / ppy, sigma / np.sqrt(ppy),
-                      size=n_bars)
+    rets = rng.normal(
+        (mu - 0.5 * sigma ** 2) / 252, sigma / np.sqrt(252), size=n_bars,
+    )
     close = s0 * np.exp(np.cumsum(rets))
     open_ = np.concatenate([[s0], close[:-1]]) * (1 + rng.normal(0, 0.001, n_bars))
     spread = np.abs(rng.normal(0.004, 0.002, n_bars))
@@ -60,8 +52,7 @@ def make_cointegrated_pair(n_bars: int = 750, beta: float = 1.4,
                            gld_s0: float = 180.0, gdx_s0: float = 30.0,
                            gdx_mu: float = 0.04, gdx_sigma: float = 0.28,
                            start: str = "2020-01-01", seed: int = 7,
-                           gdx_missing_every: int | None = None,
-                           periods_per_year: float = 252.0) -> dict:
+                           gdx_missing_every: int | None = None) -> dict:
     """Seeded synthetic cointegrated GLD/GDX-like daily OHLCV bars.
 
     ln GDX follows GBM; ln GLD = alpha + beta * ln GDX + e, where e is a
@@ -77,9 +68,7 @@ def make_cointegrated_pair(n_bars: int = 750, beta: float = 1.4,
     rng = np.random.default_rng(seed)
     dates = pd.bdate_range(start=start, periods=n_bars, tz="UTC")
 
-    ppy = float(periods_per_year)
-    gdx_rets = rng.normal((gdx_mu - 0.5 * gdx_sigma**2) / ppy,
-                          gdx_sigma / np.sqrt(ppy), size=n_bars)
+    gdx_rets = rng.normal(gdx_mu / 252, gdx_sigma / np.sqrt(252), size=n_bars)
     log_gdx = np.log(gdx_s0) + np.cumsum(gdx_rets)
 
     spread = np.empty(n_bars)

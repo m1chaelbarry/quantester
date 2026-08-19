@@ -205,15 +205,13 @@ def test_as_daily_reindex_ffill():
     assert list(aligned.values) == [1.0, 1.0, 2.0, 2.0, 2.0]
 
 
-def test_as_daily_reindex_bfill_hard_fails():
-    """bfill leaks future macro prints into past bars (synthesis §1.10):
-    the trading-feature join must hard-error, not silently allow it."""
-    cal = pd.date_range("2024-01-01", periods=5, freq="D", tz="UTC")
+def test_as_daily_reindex_rejects_bfill():
+    cal = pd.date_range("2024-01-01", periods=3, freq="D", tz="UTC")
     series = pd.Series(
-        [1.0, 2.0],
-        index=pd.to_datetime(["2024-01-01", "2024-01-03"]).tz_localize("UTC"),
+        [1.0],
+        index=pd.to_datetime(["2024-01-03"]).tz_localize("UTC"),
     )
-    with pytest.raises(ValueError, match="bfill"):
+    with pytest.raises(ValueError, match="look-ahead"):
         as_daily_reindex(cal, series, method="bfill")
 
 

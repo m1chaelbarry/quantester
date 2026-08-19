@@ -23,6 +23,7 @@ this and must honor the visibility contract exactly.
 | `timestamp_at_offset(timestamp, n)` | → `pd.Timestamp \| None` | Timestamp `n` bars later on the master calendar; `None` past the end. Used to stamp `earliest_fill_time`. |
 | `current_timestamp` | property | The stream's current timestamp. |
 | `bar_at(symbol, timestamp)` | → row or `None` | Execution-side full-bar lookup (used by the execution simulator). |
+| `source_ohlcv(symbol)` | → `pd.DataFrame` | Full loaded frame for **research / post-run** use. The engine seals this during `calculate_signals` (`PermissionError`); live signals must use `get_latest_bars` / `get_current_open`. |
 
 ## `HistoricCSVDataHandler`
 
@@ -77,12 +78,13 @@ from quantester.macro import (
 
 cpi = load_world_bank("FP.CPI.TOTL.ZG", "USA", start=2010, end=2024)
 fx = load_nbp_fx("USD", start="2023-01-01", end="2024-12-31")
-aligned = as_daily_reindex(price_index, fx)  # ffill onto bar calendar
+aligned = as_daily_reindex(price_index, fx)  # causal ffill onto bar calendar
 ```
 
 `as_daily_reindex` accepts only `method="ffill"` (causal) or `None`
-(explicit NaNs). `method="bfill"` hard-fails: backward-filling would leak
-future macro prints into past bars.
+(explicit NaNs on non-observation days). `method="bfill"` raises
+`ValueError`: pulling a later print onto earlier bars is look-ahead when
+the aligned series feeds a trading feature (synthesis §1.10).
 
 Requires `pip install "quantester[data]"`. Optional GUS key:
 `QUANTESTER_GUS_API_KEY` (`X-ClientId`).
@@ -161,7 +163,6 @@ Keep the three contract bullets exactly — the temporal firewall, the
 pending-order ledger, and every regression test depend on them.
 
 `source_ohlcv(symbol)` exposes the full loaded frame for research scripts
-and post-run analysis. Calling it from inside `Strategy.calculate_signals`
-bypasses the firewall: the engine marks signal dispatch, so the call emits a
-`UserWarning`, and setting `handler.seal_source_ohlcv = True` escalates it
-to a `PermissionError` that aborts the run.
+and post-run analysis. The engine seals it around every
+`Strategy.calculate_signals` dispatch (`PermissionError`); feeds that expose
+it implement ``_source_ohlcv`` so the base-class seal cannot be bypassed.

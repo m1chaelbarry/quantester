@@ -6,8 +6,10 @@ and that probability scales the trade SIZE. This filters false positives:
 precision rises at the cost of recall.
 
 Labels come from the triple-barrier method: y=1 if the primary signal was
-correct (take-profit barrier touched first / positive realization at the
-vertical barrier), y=0 otherwise.
+correct (take-profit barrier touched first on the high/low path / positive
+realization at the vertical barrier), y=0 otherwise. Same-bar TP and SL
+touches label the stop. Close-only callers omit high/low and recover the
+legacy path.
 
 The z-score size transform m = 2*Phi(z) - 1 (AFML ch.10) was NOT covered by the
 user's notebook; it is offered as an option and flagged as such.
@@ -23,32 +25,28 @@ from ..events import SignalEvent
 from .base import Strategy
 
 
-def triple_barrier_labels(bars, events: pd.DataFrame,
-                          tp_pct: float, sl_pct: float, max_holding: int) -> pd.Series:
+def triple_barrier_labels(close: pd.Series, events: pd.DataFrame,
+                          tp_pct: float, sl_pct: float, max_holding: int,
+                          high: pd.Series | None = None,
+                          low: pd.Series | None = None) -> pd.Series:
     """Binary meta-labels for primary-model events.
-
-    bars: OHLC DataFrame (columns high/low/close) for first-touch labeling on
-    the price PATH (AFML ch.3, notebook-verified): the take-profit barrier
-    reads the favorable extreme (high for longs, low for shorts) and the
-    stop-loss barrier the adverse extreme, so intra-bar wick touches count.
-    A bare close Series keeps the legacy close-only path (under-detects both
-    barriers — retained for callers that genuinely hold closes only).
-
-    Same-bar tie (both barriers wicked by one bar): the intra-bar order is
-    unobservable in OHLC data, so the stop-loss wins — pessimistic labels,
-    no fabricated precision (implementation choice, not covered by the
-    notebook).
 
     events: DataFrame with columns [t0 (entry timestamp), side (+1/-1)].
     Returns Series of y in {0, 1} indexed like events: 1 if the primary signal
     was correct under the triple-barrier outcome.
+
+    First touch walks the intra-bar high/low path (AFML ch. 3): long TP if
+    high ≥ tp, long SL if low ≤ sl; short is the opposite. When both barriers
+    are touched on the same bar, the label is the stop (y=0). ``high``/``low``
+    default to ``close`` so existing close-only callers keep their labels.
+    The vertical-barrier terminal still uses close.
+
+    Notebook-verified: AFML ch. 3 triple-barrier intent (close-path labels).
+    High/low first-touch is AFML ch. 3 path dependence — not covered by a
+    notebook page beyond that intent; implemented from AFML ch. 3.
     """
-    if isinstance(bars, pd.DataFrame):
-        close = bars["close"]
-        high, low = bars["high"], bars["low"]
-    else:
-        close = bars
-        high = low = None
+    high = close if high is None else high
+    low = close if low is None else low
     labels = {}
     idx = close.index
     pos_of = {ts: i for i, ts in enumerate(idx)}
@@ -59,20 +57,25 @@ def triple_barrier_labels(bars, events: pd.DataFrame,
         tp = entry * (1 + side * tp_pct)
         sl = entry * (1 - side * sl_pct)
         end = min(i0 + max_holding, len(idx) - 1)
+        path_high = high.iloc[i0 + 1 : end + 1]
+        path_low = low.iloc[i0 + 1 : end + 1]
         path_close = close.iloc[i0 + 1 : end + 1]
-        if high is not None:
-            path_high = high.iloc[i0 + 1 : end + 1]
-            path_low = low.iloc[i0 + 1 : end + 1]
-            hit_tp = (path_high >= tp) if side > 0 else (path_low <= tp)
-            hit_sl = (path_low <= sl) if side > 0 else (path_high >= sl)
+        if side > 0:
+            hit_tp = path_high >= tp
+            hit_sl = path_low <= sl
         else:
-            hit_tp = (path_close >= tp) if side > 0 else (path_close <= tp)
-            hit_sl = (path_close <= sl) if side > 0 else (path_close >= sl)
+            hit_tp = path_low <= tp
+            hit_sl = path_high >= sl
         y = 0
-        if hit_tp.any() and (not hit_sl.any() or hit_tp.idxmax() < hit_sl.idxmax()):
-            y = 1
-        elif not hit_sl.any():
-            final = float(path_close.iloc[-1]) if len(path_close) else entry
+        if hit_tp.any() or hit_sl.any():
+            tp_t = hit_tp.idxmax() if hit_tp.any() else None
+            sl_t = hit_sl.idxmax() if hit_sl.any() else None
+            if sl_t is not None and (tp_t is None or sl_t <= tp_t):
+                y = 0  # stop first, or same-bar both-hit
+            else:
+                y = 1
+        elif len(path_close):
+            final = float(path_close.iloc[-1])
             y = 1 if (final - entry) * side > 0 else 0
         labels[event_id] = y
     return pd.Series(labels)
@@ -147,21 +150,19 @@ class MetaLabelingStrategy(Strategy):
                     limit_price=getattr(signal, "limit_price", None),
                     cancel_orders=getattr(signal, "cancel_orders", False),
                     stop_distance=getattr(signal, "stop_distance", None),
-                    hedge_ratio=getattr(signal, "hedge_ratio", None),
                 )
             )
 
-    def fit_secondary(self, features: pd.DataFrame, bars,
+    def fit_secondary(self, features: pd.DataFrame, close: pd.Series,
                       events: pd.DataFrame, tp_pct: float, sl_pct: float,
-                      max_holding: int):
-        """Build triple-barrier labels for the primary events and fit the model.
-
-        ``bars`` is an OHLC DataFrame (first-touch path labeling, preferred)
-        or a bare close Series (legacy close-only labeling).
-        """
+                      max_holding: int, high: pd.Series | None = None,
+                      low: pd.Series | None = None):
+        """Build triple-barrier labels for the primary events and fit the model."""
         if self.model is None:
             raise ValueError("No secondary model configured.")
-        y = triple_barrier_labels(bars, events, tp_pct, sl_pct, max_holding)
+        y = triple_barrier_labels(
+            close, events, tp_pct, sl_pct, max_holding, high=high, low=low,
+        )
         self.model.fit(features.loc[y.index], y)
         return y
 

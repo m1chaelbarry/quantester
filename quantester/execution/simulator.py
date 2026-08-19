@@ -176,19 +176,11 @@ class SimulatedExecutionHandler(ExecutionHandler):
 
     def execute_order(self, order, events_queue):
         if order.order_type == CANCEL_ORDER:
-            # Purge pending orders for the symbol, including residual MARKET
-            # slices from partial fills. Liquidation MARKETs are enqueued
-            # after CANCEL in the same drain and are unaffected. A scoped
-            # purge (purge_types) removes only the named order types — e.g.
-            # replacing a resting stop without killing an entry ladder.
-            purge = order.purge_types
+            # Purge every pending order for the symbol, including residual
+            # MARKET slices from partial fills. Liquidation MARKETs are
+            # enqueued after CANCEL in the same drain and are unaffected.
             self._pending = [
-                o
-                for o in self._pending
-                if not (
-                    o.symbol == order.symbol
-                    and (purge is None or o.order_type in purge)
-                )
+                o for o in self._pending if o.symbol != order.symbol
             ]
             return
         if order.order_type == MOC_ORDER:

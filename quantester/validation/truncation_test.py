@@ -41,7 +41,7 @@ from ..data.csv_handler import HistoricCSVDataHandler
 from ..engine import BacktestEngine
 from ..execution.costs import CostModel
 from ..execution.simulator import SimulatedExecutionHandler
-from ..portfolio.portfolio import PercentEquitySizer, PortfolioManager
+from ..portfolio.portfolio import HedgeRatioSizer, PercentEquitySizer, PortfolioManager
 from ..strategy.base import Strategy
 from ..strategy.pairs_trading import PairsTradingStrategy
 
@@ -117,7 +117,7 @@ def run_pairs_backtest(
 
     Every run builds NEW handler/strategy/portfolio/execution instances so no
     state can leak between Run A and Run B. ``leg_fraction`` is the fraction
-    of equity targeted per leg (0.5 -> ~100% gross, dollar-balanced spread).
+    of equity targeted on the Y leg (X is sized q_X = -beta q_Y).
     """
     handler = HistoricCSVDataHandler(data)
     if strategy_factory is not None:
@@ -127,7 +127,7 @@ def run_pairs_backtest(
     portfolio = PortfolioManager(
         handler,
         initial_capital,
-        sizer=PercentEquitySizer(leg_fraction),
+        sizer=HedgeRatioSizer(leg_fraction),
     )
     execution = SimulatedExecutionHandler(cost_model or ZERO_COST_MODEL)
     BacktestEngine(handler, strategy, portfolio, execution).run_backtest()

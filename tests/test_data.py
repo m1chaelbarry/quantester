@@ -45,6 +45,18 @@ def test_firewall_visibility_per_phase(ohlc):
     assert len(visible_close) == 2
 
 
+def test_source_ohlcv_seal_blocks_then_releases(ohlc):
+    handler = HistoricCSVDataHandler({"AAA": ohlc})
+    with handler.seal_source_ohlcv():
+        with pytest.raises(PermissionError, match="source_ohlcv"):
+            handler.source_ohlcv("AAA")
+        with handler.seal_source_ohlcv():
+            with pytest.raises(PermissionError, match="source_ohlcv"):
+                handler.source_ohlcv("AAA")
+    frame = handler.source_ohlcv("AAA")
+    assert len(frame) == len(ohlc)
+
+
 def test_timestamp_at_offset(ohlc):
     handler = HistoricCSVDataHandler({"AAA": ohlc})
     idx = ohlc.index
@@ -88,60 +100,24 @@ def test_tick_imbalance_bars_structure():
     assert bars["close"].iloc[-1] == pytest.approx(ticks["price"].iloc[-1])
 
 
-def test_tick_imbalance_bars_bar_frequency_ewma():
-    """AFML ch.2 estimator: E_0[T] and the expected imbalance are BOTH
-    bar-frequency EWMAs (one observation per completed bar). The pre-fix code
-    EWMA'd concatenated per-tick flows with the same span, remembering ~span
-    ticks instead of ~span bars (3rd-cross-ref synthesis §1.6, research 02).
+def test_tick_imbalance_ewma_uses_bar_level_signed_flow():
+    """After warmup, E[imbalance] is EWMA of per-bar mean signed flow.
 
-    Hand-computed trace (span=2, warmup=1, initial_expected_len=2), with
-    b = [+1, +1, -1, +1, +1, +1, +1, +1, +1, +1]:
-    - bars 1: cap 2 -> [t0,t1], len 2, mean imb 1.0
-      -> threshold = EWMA([2]) * |EWMA([1.0])| = 2
-    - bar 2: [t2..t5] (theta dips to -1 then climbs to +2), len 4, imb 0.5
-      -> threshold = EWMA([2,4]) * |EWMA([1.0,0.5])| = 3.5 * 0.625 = 2.1875
-    - bar 3: [t6..t8], theta reaches 3 >= 2.1875, len 3
-    - trailing tick t9 never reaches the next threshold -> flushed (len 1)
-    The tick-unit EWMA (pre-fix) would emit bar 3 at length 4 instead of 3.
+    Concatenating ticks and sharing ``span`` with bar lengths remembers ~span
+    ticks, not ~span bars (research 02 / AFML ch. 2). A mixed bar followed by
+    buys diverges: tick-concat volumes would be [2, 6, 5, 5, 5, 5].
     """
-    signs = [1, 1, -1, 1, 1, 1, 1, 1, 1, 1]
+    # b_0 = +1; each later sign is a +1/-1 price step so the tick rule matches.
+    signs = [1, 1, 1, -1, 1, -1, 1, 1] + [1] * 20
     prices = [100.0]
-    for s in signs[1:]:
-        prices.append(prices[-1] + 0.5 * s)
-    idx = pd.date_range("2024-01-01", periods=len(signs), freq="1min", tz="UTC")
+    for step in signs[1:]:
+        prices.append(prices[-1] + float(step))
+    idx = pd.date_range("2024-01-01", periods=len(prices), freq="1min", tz="UTC")
     ticks = pd.DataFrame({"price": prices, "volume": 1.0}, index=idx)
-
-    bars = tick_imbalance_bars(ticks, span=2, warmup=1, initial_expected_len=2.0)
-    assert list(bars["volume"]) == [2.0, 4.0, 3.0, 1.0]
-    # Every emitted bar's close is the last tick inside it.
-    assert bars["close"].iloc[-1] == pytest.approx(prices[-1])
-
-
-def test_synthetic_ohlcv_ito_drift_correction():
-    """GBM fixture must grow at rate mu in PRICE expectation (synthesis §1.11):
-    log-increments average (mu - 0.5*sigma**2)/periods_per_year, so that
-    E[S_T] = s0 * exp(mu * T). The pre-fix drift (mu/ppy) inflates E[S_T] by
-    exp(0.5*sigma**2 * T)."""
-    mu, sigma, ppy = 0.10, 0.50, 252.0
-    df = make_synthetic_ohlcv(n_bars=200_000, mu=mu, sigma=sigma, seed=11)
-    log_rets = np.diff(np.log(df["close"].to_numpy()))
-    expected = (mu - 0.5 * sigma**2) / ppy
-    se = sigma / np.sqrt(ppy * len(log_rets))  # standard error of the mean
-    assert abs(log_rets.mean() - expected) < 4 * se
-    # The pre-fix (no Itô term) drift sits far outside that band.
-    assert abs(log_rets.mean() - mu / ppy) > 4 * se
-
-
-def test_synthetic_ohlcv_periods_per_year_parameter():
-    """periods_per_year scales the GBM discretization explicitly (§1.2)."""
-    sigma = 0.40
-    ppy = 365.0 * 24  # hourly 24/7 calendar
-    df = make_synthetic_ohlcv(n_bars=100_000, mu=0.0, sigma=sigma,
-                              periods_per_year=ppy, seed=5)
-    log_rets = np.diff(np.log(df["close"].to_numpy()))
-    expected_std = sigma / np.sqrt(ppy)
-    se = expected_std / np.sqrt(2.0 * len(log_rets))  # se of the sample std
-    assert abs(log_rets.std(ddof=1) - expected_std) < 5 * se
+    bars = tick_imbalance_bars(
+        ticks, span=2, warmup=1, initial_expected_len=2.0,
+    )
+    assert list(bars["volume"].astype(int)) == [2, 6, 3, 4, 4, 4, 4, 1]
 
 
 def _trick_inputs(rebalance=True):
@@ -181,3 +157,18 @@ def test_etf_trick_short_spread_no_fictitious_profit():
     net_short = (short_run["K"] - 1.0) - short_run["c"].cumsum()
     gross_short = short_run["K"] - 1.0
     assert (net_short <= gross_short + 1e-12).all()
+
+
+def test_synthetic_ohlcv_log_drift_uses_ito_correction():
+    """Hilpisch GBM: E[Δlog S] = (μ − ½σ²)Δt, not μΔt (synthesis §1.11)."""
+    mu, sigma, n_bars, s0 = 0.20, 0.40, 80_000, 100.0
+    frame = make_synthetic_ohlcv(
+        "AAA", n_bars=n_bars, s0=s0, mu=mu, sigma=sigma, seed=1,
+    )
+    log_levels = np.log(frame["close"].to_numpy() / s0)
+    daily = np.concatenate([[log_levels[0]], np.diff(log_levels)])
+    mean_daily = float(daily.mean())
+    ito_daily = (mu - 0.5 * sigma ** 2) / 252
+    naive_daily = mu / 252
+    assert abs(mean_daily - ito_daily) < abs(mean_daily - naive_daily)
+    assert abs(mean_daily - ito_daily) < 0.0002

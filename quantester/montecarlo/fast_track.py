@@ -29,8 +29,6 @@ class FastResult:
     positions: pd.Series
     cash: pd.Series
     daily_returns: pd.Series
-    periods_per_year: float = 252.0
-    sharpe_mode: str = "legacy"
 
     @property
     def total_return(self) -> float:
@@ -38,18 +36,10 @@ class FastResult:
 
     @property
     def sharpe(self) -> float:
-        if self.sharpe_mode == "tearsheet":
-            # Parity mode (synthesis §4.9): delegate to the tearsheet function
-            # on the same equity series so MCPT ranks the reported statistic.
-            from ..analytics.performance import annualized_sharpe
-
-            return annualized_sharpe(
-                self.equity, periods_per_year=self.periods_per_year
-            )
         rets = self.daily_returns.dropna()
         if len(rets) < 2 or rets.std() == 0:
             return 0.0
-        return float(rets.mean() / rets.std() * np.sqrt(self.periods_per_year))
+        return float(rets.mean() / rets.std() * np.sqrt(252))
 
 
 def _open_cost_bar(i: int, open_, high, low, close, volume) -> dict:
@@ -75,9 +65,7 @@ def _open_cost_bar(i: int, open_, high, low, close, volume) -> dict:
 def fast_backtest(ohlc: pd.DataFrame, target: pd.Series, cost_model: CostModel,
                   initial_capital: float = 100_000.0,
                   units: float = 100.0,
-                  liquidity_policy: str = "partial",
-                  periods_per_year: float = 252.0,
-                  sharpe_mode: str = "legacy") -> FastResult:
+                  liquidity_policy: str = "partial") -> FastResult:
     """Vectorized T+1 backtest on one symbol.
 
     ohlc: DataFrame [open, high, low, close, volume]; target: position after
@@ -89,19 +77,9 @@ def fast_backtest(ohlc: pd.DataFrame, target: pd.Series, cost_model: CostModel,
     event-engine participation constraint. ``liquidity_policy`` mirrors the
     simulator: ``partial`` carries unfilled delta to later bars, ``reject``
     drops the excess, ``none`` disables the cap.
-
-    ``periods_per_year`` annualizes ``FastResult.sharpe`` explicitly (252
-    equity dailies by default; never inferred from the index).
-    ``sharpe_mode='tearsheet'`` switches the Sharpe to the event-loop
-    tearsheet function (log returns) evaluated on the same equity series —
-    the §4.9 parity mode for MCPT objectives. The default ``'legacy'`` keeps
-    the simple-return Sharpe; the simple-vs-log representation ruling is
-    parked behind synthesis §4.1, so no default changes here.
     """
     if liquidity_policy not in {"partial", "reject", "none"}:
         raise ValueError("liquidity_policy must be 'partial', 'reject', or 'none'")
-    if sharpe_mode not in {"legacy", "tearsheet"}:
-        raise ValueError("sharpe_mode must be 'legacy' or 'tearsheet'")
 
     target = target.reindex(ohlc.index).fillna(0.0)
 
@@ -171,6 +149,4 @@ def fast_backtest(ohlc: pd.DataFrame, target: pd.Series, cost_model: CostModel,
         positions=pd.Series(q, index=idx, name="position"),
         cash=pd.Series(cash, index=idx, name="cash"),
         daily_returns=equity_s.pct_change(),
-        periods_per_year=float(periods_per_year),
-        sharpe_mode=sharpe_mode,
     )
