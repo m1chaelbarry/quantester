@@ -19,6 +19,7 @@ regardless of delay.
 
 from __future__ import annotations
 
+import contextlib
 import queue
 
 import pandas as pd
@@ -118,6 +119,14 @@ class BacktestEngine:
 
         return self.portfolio
 
+    def _signal_scope(self):
+        """Firewall dispatch scope: source_ohlcv() calls made from inside a
+        strategy's calculate_signals are detected here (warn / sealed raise)."""
+        scope = getattr(self.data_handler, "signal_scope", None)
+        if callable(scope):
+            return scope()
+        return contextlib.nullcontext()
+
     def _drain_queue(self):
         while True:
             try:
@@ -130,14 +139,16 @@ class BacktestEngine:
                     # Execution already drained for this open (see run_backtest).
                     for strategy in self.strategies:
                         if strategy.matches_phase(OPEN):
-                            strategy.calculate_signals(event, self.events)
+                            with self._signal_scope():
+                                strategy.calculate_signals(event, self.events)
                 else:
                     self.portfolio.update_portfolio_valuation(event, self.events)
                     # STOP/LIMIT touch tests once full OHLC is known.
                     self.execution_handler.on_market(event, self.events)
                     for strategy in self.strategies:
                         if strategy.matches_phase("close"):
-                            strategy.calculate_signals(event, self.events)
+                            with self._signal_scope():
+                                strategy.calculate_signals(event, self.events)
 
             elif event.type == SIGNAL:
                 self.portfolio.update_from_signal(event, self.events)

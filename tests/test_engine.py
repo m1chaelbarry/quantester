@@ -1,5 +1,7 @@
 """Temporal-firewall enforcement and no-look-ahead regression."""
 
+import warnings
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -100,3 +102,42 @@ def test_no_lookahead_truncation_regression(zero_costs):
 
     result = run_truncation_test(run_fn, n_truncated=25)
     assert result.passed, result.mismatches[:3]
+
+
+class _PeekingStrategy(Strategy):
+    """Reads the raw frame through source_ohlcv from inside calculate_signals."""
+
+    delay = 1
+
+    def calculate_signals(self, event, events_queue):
+        self.data_handler.source_ohlcv("AAA")
+
+
+def test_source_ohlcv_warns_inside_calculate_signals(ohlc, zero_costs):
+    """source_ohlcv bypasses the temporal firewall; a strategy calling it must
+    warn (synthesis §5 item 2 — seal-or-warn; Kaufman permission-error note)."""
+    with pytest.warns(UserWarning, match="source_ohlcv"):
+        _run(ohlc, _PeekingStrategy(), zero_costs)
+
+
+def test_source_ohlcv_sealed_raises_inside_calculate_signals(ohlc, zero_costs):
+    """Opt-in seal: seal_source_ohlcv=True escalates the warning to a
+    PermissionError that aborts the run."""
+    handler = HistoricCSVDataHandler({"AAA": ohlc})
+    handler.seal_source_ohlcv = True
+    strategy = _PeekingStrategy()
+    strategy.data_handler = handler
+    portfolio = PortfolioManager(handler, 100_000.0, sizer=FixedUnitSizer(100))
+    engine = BacktestEngine(handler, strategy, portfolio,
+                            SimulatedExecutionHandler(zero_costs))
+    with pytest.raises(PermissionError, match="source_ohlcv"):
+        engine.run_backtest()
+
+
+def test_source_ohlcv_outside_signals_stays_quiet(ohlc):
+    """Research scripts and post-run analysis keep unrestricted access."""
+    handler = HistoricCSVDataHandler({"AAA": ohlc})
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        frame = handler.source_ohlcv("AAA")
+    assert len(frame) == len(ohlc)

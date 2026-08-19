@@ -177,6 +177,7 @@ class StreamingDataHandler(DataHandler):
 
     def source_ohlcv(self, symbol: str) -> pd.DataFrame:
         """Return a copy of the loaded OHLCV frame for ``symbol``."""
+        self._check_source_ohlcv_access()
         if symbol not in self._data:
             raise KeyError(f"unknown symbol {symbol!r}; known={list(self._data)}")
         return self._data[symbol].copy()
