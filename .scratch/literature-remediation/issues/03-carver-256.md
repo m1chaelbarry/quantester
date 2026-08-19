@@ -1,7 +1,7 @@
 # What does Carver prescribe for 256 business days versus measured frequency?
 
 Type: research
-Status: open
+Status: resolved
 Part of: [Literature remediation decision map](../map.md)
 
 ## Question
@@ -13,3 +13,9 @@ Chan and others in the synthesis want measured \(N_T\) (e.g. hourly NYSE \(252\t
 Resolve the **Carver fact** from the book (or an honest “not available”), not the product default. That default is [What is the canonical periods-per-year and cash day-count policy?](06-periods-per-year.md).
 
 Write findings to [`../research/03-carver-256.md`](../research/03-carver-256.md).
+
+## Answer
+
+Carver treats **256 / \(\sqrt{256}=16\)** as a daily-business-day **convenience** so the vol/Sharpe scalar is exactly 16, not a universal constant and not a measured \(N_T\). He knows the real year is closer to 252 / ~21 days per month and keeps 256 anyway. Other clocks in `pysystemtrade` get **other hardcoded** year-counts, not median-\(\Delta t\). *Systematic Trading* PDF was not in the tree; first-party substitutes are Carver’s blog and `pysystemtrade` / `systematictradingexamples`. Product default remains [What is the canonical periods-per-year and cash day-count policy?](06-periods-per-year.md).
+
+Detail: [research/03-carver-256.md](../research/03-carver-256.md).

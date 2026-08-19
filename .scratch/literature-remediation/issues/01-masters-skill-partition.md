@@ -1,7 +1,7 @@
 # What does Masters Assessing specify for the Trend/Bias/Skill partition?
 
 Type: research
-Status: open
+Status: resolved
 Part of: [Literature remediation decision map](../map.md)
 
 ## Question
@@ -19,3 +19,9 @@ The third-cross-reference Assessing audit claims Skill / Ability must subtract \
 Resolve the **fact**, not the product call. Cite the book/C++ (or an honest “not available”) and the code. Do not treat [`3rd Cross Reference.md`](../../../3rd%20Cross%20Reference.md) as primary.
 
 Write findings to [`../research/01-masters-skill-partition.md`](../research/01-masters-skill-partition.md).
+
+## Answer
+
+Against *Assessing* companion `MC_TRAIN.CPP`, Ability is \(R_{\mathrm{unbiased}}-B_{\mathrm{perm}}\) (mean permuted inherent bias). Repo `trend_bias_skill` uses \(R_{\mathrm{unbiased}}-B_{\mathrm{orig}}\). That is a real *Assessing* discrepancy, not a naming mix-up. The same Skill line **does** match Masters *Testing and Tuning* `MCPT_TRN.CPP`. Notebook-verified identities follow TTMTS, not *Assessing*. Printed p.276 prose was not available; formulas are from the official Apress listing.
+
+Detail: [research/01-masters-skill-partition.md](../research/01-masters-skill-partition.md).

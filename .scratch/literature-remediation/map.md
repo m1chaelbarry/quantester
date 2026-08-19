@@ -17,7 +17,10 @@ A locked decision spec — not the engine patches themselves — that a later im
 
 ## Decisions so far
 
-<!-- the index — one line per closed ticket -->
+- [What does Masters Assessing specify for the Trend/Bias/Skill partition?](issues/01-masters-skill-partition.md) — *Assessing* Ability subtracts \(B_{\mathrm{perm}}\); repo Skill subtracts \(B_{\mathrm{orig}}\) and matches TTMTS, not *Assessing*.
+- [What is the AFML imbalance-bar threshold estimator versus current code?](issues/02-afml-imbalance-estimator.md) — product-shape after warmup, but EWMA of tick flows vs bar-level signed size; leftover flush and constant warmup are extra.
+- [What does Carver prescribe for 256 business days versus measured frequency?](issues/03-carver-256.md) — 256 is a daily convenience so \(\sqrt{P}=16\), not a universal or measured \(N_T\).
+- [What bootstrap methods remain missing after the existing stationary bootstrap?](issues/04-stationary-bootstrap-gap.md) — SB already exists; remaining are TBB and automatic \(b_{\mathrm{SB}}\).
 
 ## Not yet specified
 
