@@ -39,7 +39,7 @@ firewall mechanically:
 | `STOP` | The **next available price after the stop is touched**, including gap-through: a buy stop gapped at the open fills *at the open*, not at the stop. Untriggered stops stay pending. |
 | `LIMIT` | Rests in the ledger until touched: a buy limit fills when the bar's low reaches the level, at `min(open, limit)` — a gap through the limit earns price improvement at the open, never a worse price (sells symmetric at `max(open, limit)`). |
 | `MOC` | The bar's **close print**, on its `earliest_fill_time` bar only. Never parks: a missed close auction expires the order (live MOC semantics), so a MOC fill can never use a close print that was not yet known at decision time. |
-| `CANCEL` | No fill — synchronously purges the symbol's resting limit/stop orders from the ledger. Parked **market** orders (committed exits/liquidations in flight) are never purged. |
+| `CANCEL` | No fill — synchronously purges the symbol's pending orders from the ledger, including parked **market** residuals (liquidation orders are re-enqueued after the cancel in the same drain). `purge_types=(...)` scopes the purge to named order types — e.g. replacing a resting stop without killing an entry ladder. |
 
 The fill price is then adjusted **adversely** (up for buys, down for sells,
 floored at ~0): you always pay the adjustment. Fill details — all-in

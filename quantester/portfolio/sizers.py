@@ -95,6 +95,10 @@ class HedgeRatioSizer:
     The hedge signal must carry ``hedge_ratio=beta_t`` (e.g. attached by
     PairsTradingStrategy from its rolling OLS fit). The hedge leg's strength
     scales the primary-leg sizing decision (legs are expected to agree).
+
+    Verification status: not covered by the user's quant-literature notebook —
+    implemented from Kaufman TSM hedge-ratio pairs sizing and Chan's
+    cointegrating-spread construction (3rd-cross-reference synthesis §1.13).
     """
 
     def __init__(self, primary_symbol: str, base_sizer=None):

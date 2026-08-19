@@ -78,7 +78,7 @@ strat = MovingAverageCrossStrategy(handler, "AAPL", fast=10, slow=40,
 
 `quantester/strategy/tranche_pullback.py`.
 
-### `TranchePullbackStrategy(data_handler, symbol, regime_window=200, peak_window=20, atr_window=14, atr_spacing=1.5, tranche_fractions=(0.25, 0.35, 0.40), exit_window=5, stop_atr_mult=5.0, reanchor_every=1, cooldown_bars=0)`
+### `TranchePullbackStrategy(data_handler, symbol, regime_window=200, peak_window=20, atr_window=14, atr_spacing=1.5, tranche_fractions=(0.25, 0.35, 0.40), exit_window=5, stop_atr_mult=5.0, reanchor_every=1, cooldown_bars=0, resting_stops=False)`
 
 Volatility-spaced dip-buying ladder for a single symbol (built for BTC):
 
@@ -95,9 +95,13 @@ Volatility-spaced dip-buying ladder for a single symbol (built for BTC):
   `limit_price=T_k`, so wire `PortfolioManager(sizer=PercentEquitySizer(1.0))`
   for the exact `q_k = equity·f_k/T_k` mapping.
 - **Exits**: mean reversion at `close ≥ SMA(exit_window)` (next bar's open);
-  hard stop at `peak − stop_atr_mult·ATR` executed per Kaufman's
-  close-execution rule (notebook-verified): the intra-bar low triggers a
-  market-on-close exit at that bar's close.
+  hard stop at `peak − stop_atr_mult·ATR`. Default execution observes the
+  intra-bar low at close and exits delay-1 at the next bar's open. Opt-in
+  `resting_stops=True`: once the first tranche fills, the stop rests on the
+  ledger as a `STOP` order sized to the open position (re-placed via a
+  stops-only scoped cancel as more tranches fill), so the touch bar fills at
+  `min(stop, open)` — one bar earlier, at the stop level, gap-through
+  honored. Entries stay resting delay-1 LIMITs either way.
 - `delay=1` (close-phase), no vectorized twin — the latched, path-dependent
   state machine has no closed form, so validate it with the block-bootstrap
   harness (see [montecarlo](montecarlo.md#stationary-block-bootstrap-ohlcv))
@@ -125,7 +129,7 @@ parameter study with PBO/DSR gating and bootstrap MC:
 
 `quantester/strategy/donchian_breakout.py`.
 
-### `DonchianBreakoutStrategy(data_handler, symbol, regime_window=200, entry_window=20, trail_window=10, exit_window=20, atr_window=14, adx_window=14, adx_threshold=25.0, stop_atr_mult=2.0, risk_fraction=0.02, long_only=False)`
+### `DonchianBreakoutStrategy(data_handler, symbol, regime_window=200, entry_window=20, trail_window=10, exit_window=20, atr_window=14, adx_window=14, adx_threshold=25.0, stop_atr_mult=2.0, risk_fraction=0.02, long_only=False, resting_stops=False)`
 
 SMA-gated Donchian breakout with an ADX intensity filter. Windows are
 bar-counts (daily or hourly). The **survivable** configuration from the
@@ -143,7 +147,11 @@ hourly both-sides BTC is friction-dominated (kept as a negative control).
   `FractionalRiskSizer(risk_fraction)`. For multi-coin books set
   `risk_fraction = book_budget / N` so concurrent breakouts cannot stack.
 - **Exits**: `SMA(exit_window)` mean reversion; opposite Donchian trail;
-  protective floor at entry ∓ `stop_atr_mult × ATR` (Kaufman MOC).
+  protective floor at entry ∓ `stop_atr_mult × ATR`. Default: the touch is
+  observed at close and exits delay-1 at the next open. Opt-in
+  `resting_stops=True`: the floor rests on the ledger as a `STOP` order from
+  the latch bar and fills on the touch bar at `min/max(stop, open)` — one
+  bar earlier, at the stop level; non-stop exits purge it.
 - No vectorized twin — validate with Protocol II MCPT / block-bootstrap.
 
 ```python
@@ -181,7 +189,7 @@ classifier** predicts the probability that the primary model is right, and
 that probability scales the trade *size* (via `SignalEvent.strength`). This
 filters false positives: precision rises at the cost of recall.
 
-### `triple_barrier_labels(close, events, tp_pct, sl_pct, max_holding)`
+### `triple_barrier_labels(bars, events, tp_pct, sl_pct, max_holding)`
 
 Builds the training labels for the secondary model. `events` is a DataFrame
 with columns `t0` (entry timestamp) and `side` (+1/−1). For each event the
@@ -189,6 +197,13 @@ outcome is decided by three barriers — take-profit at `entry·(1+side·tp_pct)
 stop-loss at `entry·(1−side·sl_pct)`, and a vertical barrier `max_holding`
 bars out. Label `y=1` when the primary signal was correct (TP touched first,
 or positive realization at the vertical barrier), else `y=0`.
+
+Pass an OHLC DataFrame as `bars` for first-touch labeling on the price
+**path** (TP reads the high for longs / low for shorts, SL the opposite
+extreme) — the AFML-faithful form. A bare close Series keeps the legacy
+close-only path, which under-detects intra-bar touches. When one bar wicks
+both barriers, the stop-loss wins (the intra-bar order is unobservable;
+pessimistic on purpose).
 
 ### `MetaLabelingStrategy(primary, data_handler, model=None, feature_fn=None, size_transform="linear")`
 

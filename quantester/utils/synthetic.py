@@ -5,6 +5,11 @@ lognormal. Deterministic under a fixed seed. One symbol's calendar can be made
 strictly shorter (missing bars) to exercise availability masks.
 `make_cointegrated_pair` builds a GLD/GDX-like pair with a known hedge ratio
 and a stationary AR(1) log-spread for pairs-trading diagnostics.
+
+Verification status: the GBM Itô drift correction (log-returns centered at
+mu - 0.5*sigma**2 per year so E[S_T] = s0*exp(mu*T)) is not covered by the
+user's notebook — implemented from Hilpisch's Euler GBM (Python for
+Algorithmic Trading; 3rd-cross-reference synthesis §1.11).
 """
 
 from __future__ import annotations
