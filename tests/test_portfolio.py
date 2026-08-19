@@ -134,6 +134,15 @@ def test_hedge_ratio_sizer_scales_x_leg_off_y_notional():
     assert q_x == pytest.approx(-1.4 * q_y)
 
 
+def test_hedge_ratio_zero_does_not_collapse_to_one():
+    class _X:
+        signal_type = "SHORT"
+        hedge_ratio = 0.0
+        hedge_ref_price = 50.0
+
+    assert HedgeRatioSizer(0.5)(_X(), _portfolio(), 25.0) == 0.0
+
+
 def test_kelly():
     assert kelly_fraction(0.6, 2.0) == pytest.approx(0.4)
     assert kelly_gaussian(0.001, 0.0004) == pytest.approx(2.5)

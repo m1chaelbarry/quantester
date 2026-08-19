@@ -155,11 +155,14 @@ class MetaLabelingStrategy(Strategy):
 
     def fit_secondary(self, features: pd.DataFrame, close: pd.Series,
                       events: pd.DataFrame, tp_pct: float, sl_pct: float,
-                      max_holding: int):
+                      max_holding: int, high: pd.Series | None = None,
+                      low: pd.Series | None = None):
         """Build triple-barrier labels for the primary events and fit the model."""
         if self.model is None:
             raise ValueError("No secondary model configured.")
-        y = triple_barrier_labels(close, events, tp_pct, sl_pct, max_holding)
+        y = triple_barrier_labels(
+            close, events, tp_pct, sl_pct, max_holding, high=high, low=low,
+        )
         self.model.fit(features.loc[y.index], y)
         return y
 

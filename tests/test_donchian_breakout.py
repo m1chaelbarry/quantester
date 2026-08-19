@@ -12,7 +12,7 @@ import pytest
 
 from quantester.data.streaming import StreamingDataHandler
 from quantester.engine import BacktestEngine
-from quantester.events import BUY, EXIT, LONG, SELL, SHORT, SignalEvent
+from quantester.events import BUY, EXIT, LONG, SELL, SHORT, STOP_ORDER, SignalEvent
 from quantester.execution.costs import CostModel
 from quantester.execution.simulator import SimulatedExecutionHandler
 from quantester.portfolio.portfolio import FractionalRiskSizer, PortfolioManager
@@ -241,7 +241,9 @@ def test_resting_stops_fill_gap_through_on_stop_bar():
     atr_at_signal = float(
         wilder_atr(sig_df["high"], sig_df["low"], sig_df["close"], 14).iloc[-1]
     )
-    protective = entry_open - STOP_MULT * atr_at_signal
+    # Resting stop is stamped on the delay-1 entry off the signal close, not
+    # the later fill-bar open.
+    protective = breakout - STOP_MULT * atr_at_signal
     bars.append((entry_open, entry_open + 1.0, entry_open - 0.05, entry_open + 0.5))
     stop_close = protective - 0.5
     bars.append(
@@ -257,6 +259,48 @@ def test_resting_stops_fill_gap_through_on_stop_bar():
     assert sells[0].reference_price == pytest.approx(protective)
     frame = _frame(bars)
     assert sells[0].timestamp == frame.index[221]
+
+
+def test_resting_stop_order_is_delay1_not_same_bar():
+    """STOP rests with the entry: earliest fill is the next bar, not this close."""
+    bars = _trend(220)
+    df_pre = _frame(bars)
+    prior_high = df_pre["high"].iloc[-21:-1].max()
+    breakout = float(prior_high + 1.0)
+    o, h, l, _ = bars[-1]
+    bars[-1] = (o, max(h, breakout + 0.5), l, breakout)
+    entry_open = breakout + 0.25
+    bars += [
+        (entry_open, entry_open + 1.0, entry_open - 0.05, entry_open + 0.5),
+        (entry_open + 0.5, entry_open + 0.6, entry_open - 0.05, entry_open + 0.4),
+    ]
+
+    handler = StreamingDataHandler({"BTC": _frame(bars)})
+    strategy = DonchianBreakoutStrategy(
+        handler, "BTC", regime_window=200, entry_window=20, trail_window=10,
+        exit_window=20, atr_window=14, adx_window=14, adx_threshold=25.0,
+        stop_atr_mult=STOP_MULT, risk_fraction=RISK, resting_stops=True,
+    )
+    portfolio = PortfolioManager(
+        handler, CAPITAL, sizer=FractionalRiskSizer(RISK),
+    )
+
+    class _Tap(SimulatedExecutionHandler):
+        def __init__(self, cost_model):
+            super().__init__(cost_model)
+            self.orders = []
+
+        def execute_order(self, order, events_queue):
+            self.orders.append(order)
+            super().execute_order(order, events_queue)
+
+    execution = _Tap(ZERO_COSTS)
+    BacktestEngine(handler, strategy, portfolio, execution).run_backtest()
+    stops = [o for o in execution.orders if o.order_type == STOP_ORDER]
+    assert stops
+    stop = stops[0]
+    assert stop.earliest_fill_time == handler.timestamp_at_offset(stop.timestamp, 1)
+    assert stop.earliest_fill_time > stop.timestamp
 
 
 def test_short_entry_symmetric():

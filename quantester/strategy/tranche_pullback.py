@@ -270,7 +270,7 @@ class TranchePullbackStrategy(Strategy):
                     events_queue.put(
                         SignalEvent(
                             event.timestamp, self.symbol, LONG,
-                            strength=filled_frac, delay=0,
+                            strength=filled_frac, delay=self.delay,
                             stop_price=self._stop, stop_only=True,
                         )
                     )

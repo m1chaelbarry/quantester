@@ -101,7 +101,8 @@ class HedgeRatioSizer:
         if signal.signal_type == EXIT or ref_price <= 0:
             return 0.0
         sign = 1.0 if signal.signal_type == LONG else -1.0
-        ratio = float(getattr(signal, "hedge_ratio", 1.0) or 1.0)
+        raw = getattr(signal, "hedge_ratio", None)
+        ratio = 1.0 if raw is None else float(raw)
         px = getattr(signal, "hedge_ref_price", None)
         base_price = float(px) if px is not None and float(px) > 0 else float(ref_price)
         return sign * abs(ratio) * portfolio.equity * self.pct / base_price

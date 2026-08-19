@@ -67,8 +67,8 @@ class DonchianBreakoutStrategy(Strategy):
 
     Set ``long_only=True`` to suppress short entries (recommended for BTC
     and multi-coin daily sleeves). Set ``resting_stops=True`` to rest a
-    ``STOP_ORDER`` at the latched ATR floor (gap-through at the next
-    available price). Default ``False`` keeps delay-1 EXIT-on-touch.
+    delay-1 ``STOP_ORDER`` on the entry (gap-through at the next available
+    price). Default ``False`` keeps delay-1 EXIT-on-touch.
     """
 
     def __init__(
@@ -127,7 +127,7 @@ class DonchianBreakoutStrategy(Strategy):
         self._state = FLAT
         self._signal_atr: float | None = None
         self._protective_stop: float | None = None
-        self._stop_armed = False
+        self._resting_stop_price: float | None = None
 
     # ------------------------------------------------------------- state I/O
 
@@ -135,13 +135,19 @@ class DonchianBreakoutStrategy(Strategy):
         self._state = FLAT
         self._signal_atr = None
         self._protective_stop = None
-        self._stop_armed = False
+        self._resting_stop_price = None
 
-    def _emit_entry(self, timestamp, events_queue, side: str, atr_value: float):
+    def _emit_entry(self, timestamp, events_queue, side: str, atr_value: float,
+                    close_t: float):
         stop_distance = self.stop_atr_mult * atr_value
         if stop_distance <= 0 or not np.isfinite(stop_distance):
             return
         signal_type = LONG if side == "long" else SHORT
+        stop_price = None
+        if self.resting_stops:
+            stop_price = (
+                close_t - stop_distance if side == "long" else close_t + stop_distance
+            )
         events_queue.put(
             SignalEvent(
                 timestamp,
@@ -150,10 +156,12 @@ class DonchianBreakoutStrategy(Strategy):
                 strength=1.0,
                 delay=self.delay,
                 stop_distance=stop_distance,
+                stop_price=stop_price,
             )
         )
         self._signal_atr = float(atr_value)
         self._protective_stop = None
+        self._resting_stop_price = stop_price
         self._state = ENTERING_LONG if side == "long" else ENTERING_SHORT
 
     def _emit_exit(self, event, events_queue, fill_at=OPEN):
@@ -226,44 +234,30 @@ class DonchianBreakoutStrategy(Strategy):
         if self._state in (ENTERING_LONG, ENTERING_SHORT):
             # Delay-1 fill reference is this bar's open.
             self._latch_protective(open_t)
-            if (
-                self.resting_stops
-                and not self._stop_armed
-                and self._protective_stop is not None
-                and self._state in (LONG_STATE, SHORT_STATE)
-                and self._signal_atr is not None
-            ):
-                side = LONG if self._state == LONG_STATE else SHORT
-                events_queue.put(
-                    SignalEvent(
-                        event.timestamp,
-                        self.symbol,
-                        side,
-                        strength=1.0,
-                        delay=0,
-                        stop_distance=self.stop_atr_mult * self._signal_atr,
-                        stop_price=self._protective_stop,
-                        stop_only=True,
-                    )
-                )
-                self._stop_armed = True
 
         if self._state == FLAT:
             strong = adx_t > self.adx_threshold
             if strong and close_t > upper and close_t > sma_regime:
-                self._emit_entry(event.timestamp, events_queue, "long", atr_t)
+                self._emit_entry(
+                    event.timestamp, events_queue, "long", atr_t, close_t,
+                )
             elif (
                 not self.long_only
                 and strong
                 and close_t < lower
                 and close_t < sma_regime
             ):
-                self._emit_entry(event.timestamp, events_queue, "short", atr_t)
+                self._emit_entry(
+                    event.timestamp, events_queue, "short", atr_t, close_t,
+                )
             return
 
         if self._state == LONG_STATE:
-            protective = self._protective_stop
-            if protective is not None and low_t <= protective:
+            floor = (
+                self._resting_stop_price if self.resting_stops
+                else self._protective_stop
+            )
+            if floor is not None and low_t <= floor:
                 if self.resting_stops:
                     # Ledger STOP_ORDER (gap-through this close); do not also
                     # flatten delay-1 — that would double-sell after the fill.
@@ -275,8 +269,11 @@ class DonchianBreakoutStrategy(Strategy):
             return
 
         if self._state == SHORT_STATE:
-            protective = self._protective_stop
-            if protective is not None and high_t >= protective:
+            cap = (
+                self._resting_stop_price if self.resting_stops
+                else self._protective_stop
+            )
+            if cap is not None and high_t >= cap:
                 if self.resting_stops:
                     self._state = EXITING
                 else:
