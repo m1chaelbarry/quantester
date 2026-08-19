@@ -77,8 +77,10 @@ from quantester.macro import (
 
 cpi = load_world_bank("FP.CPI.TOTL.ZG", "USA", start=2010, end=2024)
 fx = load_nbp_fx("USD", start="2023-01-01", end="2024-12-31")
-aligned = as_daily_reindex(price_index, fx)  # ffill onto bar calendar
+aligned = as_daily_reindex(price_index, fx)  # causal ffill onto bar calendar
 ```
+
+`method='bfill'` raises `ValueError` — pulling a later print onto earlier bars is look-ahead if the series is a trading feature. `method=None` leaves NaNs on non-observation days.
 
 Requires `pip install "quantester[data]"`. Optional GUS key:
 `QUANTESTER_GUS_API_KEY` (`X-ClientId`).
