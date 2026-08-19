@@ -125,3 +125,18 @@ def test_etf_trick_short_spread_no_fictitious_profit():
     net_short = (short_run["K"] - 1.0) - short_run["c"].cumsum()
     gross_short = short_run["K"] - 1.0
     assert (net_short <= gross_short + 1e-12).all()
+
+
+def test_synthetic_ohlcv_log_drift_uses_ito_correction():
+    """Hilpisch GBM: E[Δlog S] = (μ − ½σ²)Δt, not μΔt (synthesis §1.11)."""
+    mu, sigma, n_bars, s0 = 0.20, 0.40, 80_000, 100.0
+    frame = make_synthetic_ohlcv(
+        "AAA", n_bars=n_bars, s0=s0, mu=mu, sigma=sigma, seed=1,
+    )
+    log_levels = np.log(frame["close"].to_numpy() / s0)
+    daily = np.concatenate([[log_levels[0]], np.diff(log_levels)])
+    mean_daily = float(daily.mean())
+    ito_daily = (mu - 0.5 * sigma ** 2) / 252
+    naive_daily = mu / 252
+    assert abs(mean_daily - ito_daily) < abs(mean_daily - naive_daily)
+    assert abs(mean_daily - ito_daily) < 0.0002
