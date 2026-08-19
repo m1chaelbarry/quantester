@@ -1,13 +1,20 @@
-"""Information-driven bar sampling (AFML ch.2; notebook-verified formulas).
+"""Information-driven bar sampling (AFML ch.2).
 
 - Dollar bars: sample whenever a constant market value has exchanged hands,
   robust to price volatility and corporate actions (Report 2 section 3).
 - Tick imbalance bars (TIBs): b_t = b_{t-1} if dp == 0 else sign(dp);
   theta_T = sum(b_t); expected imbalance E_0[theta_T] = E_0[T] * (2P[b=1] - 1)
-  with E_0[T] and P[b=1] estimated as EWMAs of prior bars' values; a bar is
-  emitted at T* = argmin{ |theta_T| >= E_0[theta_T] }.
+  with E_0[T] an EWMA of prior bar lengths and (2P[b=1]-1) an EWMA of prior
+  bars' mean signed flow (theta_T / T). A bar is emitted at
+  T* = argmin{ |theta_T| >= E_0[theta_T] }.
 - Dollar/volume imbalance bars: theta_T = sum(b_t v_t);
-  E_0[theta_T] = E_0[T] * (2v+ - E_0[v_t]) via EWMA of b_t v_t.
+  E_0[theta_T] = E_0[T] * (2v+ - E_0[v_t]) via EWMA of per-bar mean signed size.
+
+Notebook-verified: AFML ch.2 sampling *condition* (product E_0[T] × |imbalance|).
+Bar-level imbalance EWMA (one observation per completed bar, not concatenated
+ticks) is from AFML ch.2 / literature-remediation research 02 (Quant.SE TIB
+extract + de Prado 2017 LBNL slides). Warmup constant threshold and leftover
+flush are extra vs the text and are unchanged.
 
 Input ticks: pd.DataFrame indexed by datetime with columns price, volume.
 Output bars: pd.DataFrame with open/high/low/close/volume indexed by bar-close time.
@@ -94,7 +101,7 @@ def _imbalance_bars(ticks: pd.DataFrame, weighted: bool, span: int, warmup: int,
 
     bars = []
     bar_lengths: list = []
-    bar_flows: list = []  # per-tick flow values of completed bars (for EWMA of imbalance)
+    bar_imbalances: list = []  # per-bar mean signed flow (AFML: prior bars)
 
     start = 0
     theta = 0.0
@@ -103,7 +110,7 @@ def _imbalance_bars(ticks: pd.DataFrame, weighted: bool, span: int, warmup: int,
         length = t - start + 1
         if len(bar_lengths) >= warmup:
             expected_len = _ewma_last(bar_lengths, span)
-            expected_imb = abs(_ewma_last(bar_flows, span))
+            expected_imb = abs(_ewma_last(bar_imbalances, span))
             threshold = max(expected_len * expected_imb, 1e-12)
         else:
             threshold = max(initial_expected_len, 1.0)
@@ -111,7 +118,7 @@ def _imbalance_bars(ticks: pd.DataFrame, weighted: bool, span: int, warmup: int,
             chunk = ticks.iloc[start : t + 1]
             bars.append(_make_bar(chunk))
             bar_lengths.append(length)
-            bar_flows.extend(flow[start : t + 1].tolist())
+            bar_imbalances.append(float(theta) / float(length))
             start = t + 1
             theta = 0.0
     if start < len(ticks):

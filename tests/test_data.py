@@ -88,6 +88,26 @@ def test_tick_imbalance_bars_structure():
     assert bars["close"].iloc[-1] == pytest.approx(ticks["price"].iloc[-1])
 
 
+def test_tick_imbalance_ewma_uses_bar_level_signed_flow():
+    """After warmup, E[imbalance] is EWMA of per-bar mean signed flow.
+
+    Concatenating ticks and sharing ``span`` with bar lengths remembers ~span
+    ticks, not ~span bars (research 02 / AFML ch. 2). A mixed bar followed by
+    buys diverges: tick-concat volumes would be [2, 6, 5, 5, 5, 5].
+    """
+    # b_0 = +1; each later sign is a +1/-1 price step so the tick rule matches.
+    signs = [1, 1, 1, -1, 1, -1, 1, 1] + [1] * 20
+    prices = [100.0]
+    for step in signs[1:]:
+        prices.append(prices[-1] + float(step))
+    idx = pd.date_range("2024-01-01", periods=len(prices), freq="1min", tz="UTC")
+    ticks = pd.DataFrame({"price": prices, "volume": 1.0}, index=idx)
+    bars = tick_imbalance_bars(
+        ticks, span=2, warmup=1, initial_expected_len=2.0,
+    )
+    assert list(bars["volume"].astype(int)) == [2, 6, 3, 4, 4, 4, 4, 1]
+
+
 def _trick_inputs(rebalance=True):
     idx = pd.bdate_range("2024-01-01", periods=6, tz="UTC")
     close = pd.DataFrame({"F1": [100, 101, 102, 103, 104, 105],
