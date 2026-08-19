@@ -30,7 +30,8 @@ Three rules keep every strategy honest:
 
 1. **Only look through the firewall.** Read market data exclusively via
    `data_handler.get_latest_bars(...)` / `get_current_open(...)`. Never read a
-   raw DataFrame — the firewall guarantees you cannot see the future.
+   raw DataFrame — the firewall guarantees you cannot see the future. Calling
+   `source_ohlcv` from `calculate_signals` raises `PermissionError`.
 2. **Only speak in events.** Communicate by putting `SignalEvent`s on the
    queue passed to you. Never call the portfolio or execution handler directly.
 3. **Emit only on changes.** Carry your current position on the instance and

@@ -10,6 +10,7 @@ becomes visible.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 
 import pandas as pd
 
@@ -65,13 +66,42 @@ class DataHandler(ABC):
         """Execution-side lookup of a full bar at a timestamp (None if unavailable)."""
         ...
 
+    @contextmanager
+    def seal_source_ohlcv(self):
+        """Block ``source_ohlcv`` while strategies generate signals.
+
+        Research scripts and post-run analysis keep the accessor; the engine
+        holds this seal only around ``calculate_signals``. Nested seals stay
+        closed until the outermost context exits.
+        """
+        self._source_ohlcv_seal_depth = getattr(self, "_source_ohlcv_seal_depth", 0) + 1
+        try:
+            yield
+        finally:
+            self._source_ohlcv_seal_depth -= 1
+
     def source_ohlcv(self, symbol: str) -> pd.DataFrame:
         """Full loaded OHLCV frame for research scripts (not for live signals).
 
         Strategies must use ``get_latest_bars`` under the temporal firewall.
         Example scripts and post-run analysis should call this instead of
         reaching into private ``_data``.
+
+        Raises ``PermissionError`` when called from ``calculate_signals``.
         """
+        self._ensure_source_ohlcv_unsealed()
+        return self._source_ohlcv(symbol)
+
+    def _ensure_source_ohlcv_unsealed(self) -> None:
+        if getattr(self, "_source_ohlcv_seal_depth", 0) > 0:
+            raise PermissionError(
+                "source_ohlcv() is sealed during calculate_signals; "
+                "read market data with get_latest_bars() / get_current_open() "
+                "under the temporal firewall. source_ohlcv() is for research "
+                "and post-run analysis only."
+            )
+
+    def _source_ohlcv(self, symbol: str) -> pd.DataFrame:
         raise NotImplementedError(
             f"{type(self).__name__} does not expose source_ohlcv(); "
             "use a StreamingDataHandler-based feed or load frames directly."

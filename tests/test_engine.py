@@ -100,3 +100,26 @@ def test_no_lookahead_truncation_regression(zero_costs):
 
     result = run_truncation_test(run_fn, n_truncated=25)
     assert result.passed, result.mismatches[:3]
+
+
+def test_source_ohlcv_sealed_during_calculate_signals(ohlc, zero_costs):
+    """Research frames must not be readable from calculate_signals."""
+
+    class LeakyStrategy(Strategy):
+        delay = 1
+
+        def calculate_signals(self, event, events_queue):
+            self.data_handler.source_ohlcv("AAA")
+
+    strategy = LeakyStrategy()
+    with pytest.raises(PermissionError, match="source_ohlcv"):
+        _run(ohlc, strategy, zero_costs)
+
+
+def test_source_ohlcv_available_after_backtest(ohlc, zero_costs):
+    handler, _, _ = _run(
+        ohlc, MovingAverageCrossStrategy(None, "AAA", fast=3, slow=8), zero_costs
+    )
+    frame = handler.source_ohlcv("AAA")
+    assert len(frame) == len(ohlc)
+    assert list(frame.columns)[:4] == ["open", "high", "low", "close"]

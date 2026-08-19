@@ -130,14 +130,14 @@ class BacktestEngine:
                     # Execution already drained for this open (see run_backtest).
                     for strategy in self.strategies:
                         if strategy.matches_phase(OPEN):
-                            strategy.calculate_signals(event, self.events)
+                            self._calculate_signals(strategy, event)
                 else:
                     self.portfolio.update_portfolio_valuation(event, self.events)
                     # STOP/LIMIT touch tests once full OHLC is known.
                     self.execution_handler.on_market(event, self.events)
                     for strategy in self.strategies:
                         if strategy.matches_phase("close"):
-                            strategy.calculate_signals(event, self.events)
+                            self._calculate_signals(strategy, event)
 
             elif event.type == SIGNAL:
                 self.portfolio.update_from_signal(event, self.events)
@@ -149,3 +149,8 @@ class BacktestEngine:
                 self.portfolio.update_from_fill(event)
 
             self.events.task_done()
+
+    def _calculate_signals(self, strategy, event) -> None:
+        """Run ``calculate_signals`` with ``source_ohlcv`` sealed on the handler."""
+        with self.data_handler.seal_source_ohlcv():
+            strategy.calculate_signals(event, self.events)

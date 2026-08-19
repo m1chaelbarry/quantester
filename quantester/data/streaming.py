@@ -175,7 +175,7 @@ class StreamingDataHandler(DataHandler):
             return df.loc[timestamp]
         return None
 
-    def source_ohlcv(self, symbol: str) -> pd.DataFrame:
+    def _source_ohlcv(self, symbol: str) -> pd.DataFrame:
         """Return a copy of the loaded OHLCV frame for ``symbol``."""
         if symbol not in self._data:
             raise KeyError(f"unknown symbol {symbol!r}; known={list(self._data)}")
