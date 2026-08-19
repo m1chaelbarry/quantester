@@ -397,8 +397,10 @@ def run_backtest(
     capital
         Starting cash.
     equity_pct
-        Fraction of equity to deploy per signal when using the default sizer
-        (0.9 = use up to 90% of the account). Ignored if ``sizer=`` is set.
+        Fraction of the sizing base to deploy per signal when using the
+        default sizer (0.9 = use up to 90% of available cash — the default
+        base per ruling D10; MTM equity is an explicit opt-in via a custom
+        sizer). Ignored if ``sizer=`` is set. Kept name for API stability.
     sizer
         Optional custom sizer; default is ``PercentEquitySizer(equity_pct)``.
     costs

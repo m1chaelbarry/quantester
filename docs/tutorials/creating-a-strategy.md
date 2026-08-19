@@ -165,7 +165,7 @@ ships with two, and you can write your own:
 
 | Sizer | Behavior |
 | --- | --- |
-| `PercentEquitySizer(pct)` | Target position worth `pct * equity * strength` — compounds and scales with account size. |
+| `PercentEquitySizer(pct)` | Target position worth `pct * cash * strength` — the default base is **cash**, not mark-to-market equity (ruling D10: MTM sizing is procyclical). Pass `base="equity"` to opt into the legacy behavior; `cash_ewma_span=N` smooths the cash base. |
 | `FixedUnitSizer(units)` | Fixed number of shares per unit of strength — useful for parity checks and Monte Carlo. |
 
 ```python
@@ -174,7 +174,7 @@ from quantester.portfolio.portfolio import PercentEquitySizer, PortfolioManager
 portfolio = PortfolioManager(
     handler,
     initial_capital=100_000.0,
-    sizer=PercentEquitySizer(0.9),       # invest up to 90% of equity
+    sizer=PercentEquitySizer(0.9),       # invest up to 90% of available cash
 )
 ```
 

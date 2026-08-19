@@ -61,12 +61,17 @@ A sizer is any callable `(signal, portfolio, ref_price) -> target_qty`
 returning the **target position** (signed). Wire it via
 `PortfolioManager(sizer=...)`.
 
+All three allocative sizers default to `base="cash"` (ruling D10): targets
+scale with available cash, not mark-to-market equity (procyclical). Pass
+`base="equity"` for the legacy MTM behavior, and `cash_ewma_span=N` to size
+off an EWMA of cash (Carver-style smoothing). Non-positive cash targets 0.
+
 | Sizer | Target |
 | --- | --- |
-| `PercentEquitySizer(pct=0.5)` | `± pct × equity × strength / ref_price` (0 on `EXIT`). Compounds with account size. |
+| `PercentEquitySizer(pct=0.5)` | `± pct × base × strength / ref_price` (0 on `EXIT`). Compounds with the sizing base. |
 | `FixedUnitSizer(units=100.0)` | `± units × strength` shares. Used for fast-track parity checks. |
-| `FractionalRiskSizer(risk_fraction=0.02)` | `± equity × risk_fraction / stop_distance`. Requires `signal.stop_distance` in price units (e.g. `2 × ATR`). A full stop-out loses ~`risk_fraction` of equity before friction. |
-| `HedgeRatioSizer(pct=0.5)` | Spread sizing: the dependent leg carries `hedge_ratio=1` (sized `pct × equity / P_Y`); the hedge leg carries `hedge_ratio=β` plus `hedge_ref_price=P_Y`, so `q_X = −β·q_Y`. Independent per-leg percent-equity sizing is not dollar-neutral on a cointegrating residual (synthesis §1.13). Wired by `PairsTradingStrategy`. |
+| `FractionalRiskSizer(risk_fraction=0.02)` | `± base × risk_fraction / stop_distance`. Requires `signal.stop_distance` in price units (e.g. `2 × ATR`). A full stop-out loses ~`risk_fraction` of the base before friction. |
+| `HedgeRatioSizer(pct=0.5)` | Spread sizing: the dependent leg carries `hedge_ratio=1` (sized `pct × base / P_Y`); the hedge leg carries `hedge_ratio=β` plus `hedge_ref_price=P_Y`, so `q_X = −β·q_Y`. Independent per-leg percent sizing is not dollar-neutral on a cointegrating residual (synthesis §1.13). Wired by `PairsTradingStrategy`. |
 
 Signals can also carry `stop_price`: the portfolio then rests a flattening
 `STOP` order on the execution ledger alongside the entry (gap-through fills

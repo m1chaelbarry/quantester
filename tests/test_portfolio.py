@@ -143,6 +143,112 @@ def test_hedge_ratio_zero_does_not_collapse_to_one():
     assert HedgeRatioSizer(0.5)(_X(), _portfolio(), 25.0) == 0.0
 
 
+# --------------------------------------------------------------------------
+# D10 (ticket 26): live sizers size on cash, not mark-to-market equity
+# --------------------------------------------------------------------------
+
+
+class _LongSignal:
+    signal_type = "LONG"
+    strength = 1.0
+    stop_distance = 10.0
+
+    def __init__(self, timestamp=None):
+        self.timestamp = timestamp
+
+
+def _inflated_book():
+    """Equity 100k but cash only 20k (80k marked-to-market position)."""
+    portfolio = _portfolio()
+    portfolio.cash = 20_000.0
+    portfolio.positions["AAA"] = 8_000.0
+    portfolio.last_prices["AAA"] = 10.0
+    return portfolio
+
+
+def test_sizers_default_base_is_cash_not_mtm_equity():
+    """D10: rising MTM equity with flat cash must NOT grow target quantity —
+    that is the procyclical unwind Penfold warns about (synthesis 1.16)."""
+    book = _inflated_book()
+    assert book.equity == pytest.approx(100_000.0)  # sanity: MTM-inflated
+
+    pct = PercentEquitySizer(0.5)  # default base="cash"
+    assert pct(_LongSignal(), book, 10.0) == pytest.approx(20_000 * 0.5 / 10.0)
+    # Explicit procyclical opt-in reproduces the legacy MTM number.
+    pct_eq = PercentEquitySizer(0.5, base="equity")
+    assert pct_eq(_LongSignal(), book, 10.0) == pytest.approx(100_000 * 0.5 / 10.0)
+
+    risk = FractionalRiskSizer(0.02)
+    assert risk(_LongSignal(), book, 10.0) == pytest.approx(20_000 * 0.02 / 10.0)
+    risk_eq = FractionalRiskSizer(0.02, base="equity")
+    assert risk_eq(_LongSignal(), book, 10.0) == pytest.approx(100_000 * 0.02 / 10.0)
+
+
+def test_sizers_zero_or_negative_cash_target_zero():
+    """No silent fall-back onto equity when cash is gone."""
+    book = _portfolio()
+    book.cash = -500.0
+
+    class _X:
+        signal_type = "SHORT"
+        strength = 1.0
+        hedge_ratio = 1.4
+        hedge_ref_price = 50.0
+        timestamp = None
+
+    assert PercentEquitySizer(0.5)(_LongSignal(), book, 10.0) == 0.0
+    assert FractionalRiskSizer(0.02)(_LongSignal(), book, 10.0) == 0.0
+    assert HedgeRatioSizer(0.5)(_X(), book, 25.0) == 0.0
+
+
+def test_cash_ewma_span_smooths_step_change():
+    """EWMA cash base reacts slower than raw cash to a step change."""
+    idx = pd.bdate_range("2024-01-01", periods=3, tz="UTC")
+    portfolio = _portfolio()
+    raw = PercentEquitySizer(0.5)
+    smooth = PercentEquitySizer(0.5, cash_ewma_span=4)
+    raw(_LongSignal(idx[0]), portfolio, 10.0)
+    smooth(_LongSignal(idx[0]), portfolio, 10.0)
+    portfolio.cash = 200_000.0  # step change
+    raw(_LongSignal(idx[1]), portfolio, 10.0)
+    smooth(_LongSignal(idx[1]), portfolio, 10.0)
+    t_raw = raw(_LongSignal(idx[2]), portfolio, 10.0)
+    t_smooth = smooth(_LongSignal(idx[2]), portfolio, 10.0)
+    assert t_raw == pytest.approx(200_000 * 0.5 / 10.0)  # fully caught up
+    assert 100_000 * 0.5 / 10.0 < t_smooth < t_raw      # still smoothing
+
+
+def test_sizer_base_and_span_validation():
+    with pytest.raises(ValueError, match="base"):
+        PercentEquitySizer(0.5, base="net-liquidation")
+    with pytest.raises(ValueError, match="cash_ewma_span"):
+        PercentEquitySizer(0.5, cash_ewma_span=1)
+
+
+def test_hedge_ratio_sizer_cash_base_keeps_beta_relation():
+    """q_X = -beta * q_Y still holds on the cash base (D10 + 1.13)."""
+    class _Y:
+        signal_type = LONG
+        strength = 1.0
+        hedge_ratio = 1.0
+        hedge_ref_price = 50.0
+        timestamp = None
+
+    class _X:
+        signal_type = "SHORT"
+        strength = 1.0
+        hedge_ratio = 1.4
+        hedge_ref_price = 50.0
+        timestamp = None
+
+    book = _inflated_book()  # cash 20k, equity 100k
+    sizer = HedgeRatioSizer(0.5)
+    q_y = sizer(_Y(), book, 50.0)
+    q_x = sizer(_X(), book, 25.0)
+    assert q_y == pytest.approx(20_000 * 0.5 / 50.0)  # cash, not equity
+    assert q_x == pytest.approx(-1.4 * q_y)
+
+
 def test_kelly():
     assert kelly_fraction(0.6, 2.0) == pytest.approx(0.4)
     assert kelly_gaussian(0.001, 0.0004) == pytest.approx(2.5)
