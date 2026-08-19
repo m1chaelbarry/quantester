@@ -56,7 +56,7 @@ def run_truncation_test(run_fn, n_truncated: int = 20,
     if len(common) == 0:
         return TruncationResult(
             passed=False,
-            n_truncated=n_truncate,
+            n_truncated=n_truncated,
             rows_compared=0,
             mismatches=[
                 {

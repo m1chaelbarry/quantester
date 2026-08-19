@@ -16,6 +16,21 @@ def _make_run_fn(full: pd.DataFrame, truncated: pd.DataFrame):
     return run_fn
 
 
+def test_truncation_empty_overlap_fails_without_crashing():
+    """Disjoint calendars must return FAIL, not NameError on n_truncate."""
+    idx_full = pd.bdate_range("2024-01-01", periods=5, tz="UTC")
+    idx_truncated = pd.bdate_range("2025-06-01", periods=5, tz="UTC")
+    full = pd.DataFrame({"AAA": np.arange(5, dtype=float)}, index=idx_full)
+    truncated = pd.DataFrame({"AAA": np.arange(5, dtype=float)}, index=idx_truncated)
+    result = run_truncation_test(_make_run_fn(full, truncated), n_truncated=3)
+    assert not result.passed
+    assert result.n_truncated == 3
+    assert result.rows_compared == 0
+    assert result.mismatches[0]["error"] == (
+        "no overlapping rows between full and truncated runs"
+    )
+
+
 def test_truncation_passes_on_equality():
     idx = pd.bdate_range("2024-01-01", periods=10, tz="UTC")
     full = pd.DataFrame({"AAA": np.arange(10, dtype=float), "BBB": 1.0}, index=idx)
