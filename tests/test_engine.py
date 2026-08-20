@@ -302,3 +302,16 @@ def test_split_adjusts_quantity_not_prices():
     assert portfolio.positions["AAA"] == pytest.approx(200.0)
     # The open lot's average entry halves too, so round-trip P&L stays honest.
     assert portfolio._open_lots["AAA"]["avg_price"] == pytest.approx(50.0)
+
+
+def test_corporate_actions_on_non_bar_dates_warn():
+    """An ex-date matching no bar timestamp is dropped with a warning,
+    never silently (Quantester audit philosophy)."""
+    bars = _bars([(100.0, 100.0)] * 3)
+    handler = HistoricCSVDataHandler({"AAA": bars})
+    stray = pd.DatetimeIndex([pd.Timestamp("2024-01-06", tz="UTC")])  # Saturday
+    with pytest.warns(UserWarning, match="no bar"):
+        handler.set_corporate_actions(
+            {"AAA": pd.DataFrame({"dividend": [1.0]}, index=stray)}
+        )
+    assert handler.corporate_actions_at(stray[0]) == []

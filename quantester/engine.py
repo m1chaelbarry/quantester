@@ -95,6 +95,9 @@ class BacktestEngine:
         _require_callable(data_handler, "advance", "data_handler")
         _require_callable(portfolio, "update_from_signal", "portfolio")
         _require_callable(portfolio, "update_from_fill", "portfolio")
+        _require_callable(
+            portfolio, "update_from_corporate_action", "portfolio"
+        )
         _require_callable(execution_handler, "execute_order", "execution_handler")
         for i, strategy in enumerate(strategies):
             _require_callable(strategy, "calculate_signals", f"strategies[{i}]")

@@ -23,6 +23,8 @@ timestamps.
 
 from __future__ import annotations
 
+import warnings
+
 import pandas as pd
 
 from .base import DataHandler
@@ -107,7 +109,11 @@ class StreamingDataHandler(DataHandler):
             self.set_corporate_actions(corporate_actions)
 
     def set_corporate_actions(self, corporate_actions: dict) -> None:
-        """Register/replace the ex-date corporate-action schedule."""
+        """Register/replace the ex-date corporate-action schedule.
+
+        Ex-dates that match no bar timestamp for the symbol are dropped with
+        a warning (an ex-date must land on a bar to book against it).
+        """
         from ..events import CorporateActionEvent
 
         by_ts: dict = {}
@@ -120,6 +126,17 @@ class StreamingDataHandler(DataHandler):
             ca = frame.copy()
             idx = pd.DatetimeIndex(ca.index)
             ca.index = idx if idx.tz is not None else idx.tz_localize("UTC")
+            bar_index = self._data[symbol].index
+            unmatched = ca.index.difference(bar_index)
+            if len(unmatched):
+                warnings.warn(
+                    f"{symbol}: {len(unmatched)} corporate-action ex-date(s) "
+                    f"match no bar timestamp and are dropped: "
+                    f"{[str(t.date()) for t in unmatched]}",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                ca = ca.loc[ca.index.intersection(bar_index)]
             for ts, row in ca.iterrows():
                 events = []
                 dividend = float(row.get("dividend", 0.0) or 0.0)

@@ -86,9 +86,10 @@ class PercentEquitySizer(_CashOrEquityBase):
     """Target quantity worth pct * base * strength at the reference price.
 
     The default base is CASH (D10): ``pct * portfolio.cash * strength /
-    ref_price`` — MTM equity only with the explicit ``base="equity"`` opt-in.
-    The class name is kept for API stability; "percent of equity" is the
-    legacy behavior, not the default.
+    ref_price`` — MTM equity only with the explicit ``base="equity"`` opt-in
+    (``cash_ewma_span`` applies to the cash base only). The class name is
+    kept for API stability; "percent of equity" is the legacy behavior, not
+    the default.
     """
 
     def __init__(self, pct: float = 0.5, *, base: str = "cash",
