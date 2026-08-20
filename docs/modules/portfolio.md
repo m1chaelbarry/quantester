@@ -31,7 +31,6 @@ calendar time between close-phase valuations — Kaufman credits **half** the
 risk-free rate on undeployed cash in non-derivative backtests. Default
 `cash_yield_rate=0.0` disables accrual; borrowed (negative) cash accrues
 nothing.
-```
 
 ### What it does on each event
 
@@ -39,6 +38,7 @@ nothing.
 | --- | --- |
 | `SignalEvent` | Computes a reference price (current open for delay-0, latest close otherwise), asks the sizer for a **target quantity**, and emits an `OrderEvent` for the difference from the current position, stamped with `earliest_fill_time = timestamp_at_offset(signal.timestamp, signal.delay)`. Signals on untradeable symbols (no reference price) or with no future bar to fill on are dropped. |
 | `FillEvent` | Updates cash and positions: `cash −= signed_qty × fill_price + commission`. Slippage is already embedded in `fill_price` and is **never** double-charged. Books completed round-trips into `trades`. |
+| `CorporateActionEvent` | At the ex-date open: dividend cash (`position × per-share`; shorts pay) or split quantity (`qty × ratio`, lot average price ÷ ratio). |
 | `MarketEvent` (close) | Marks positions to the bar close, appends to the equity and positions history, and runs the margin monitor — emitting liquidation orders (next bar's open) on a leverage breach. |
 
 ### Reading results after a run

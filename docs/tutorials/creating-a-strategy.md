@@ -106,9 +106,12 @@ About `delay` — this is the temporal-firewall dial:
 
 - `delay = 1` (recommended): signals are computed at bar T's **close** and
   filled at bar T+1's **open**. Safe and realistic.
-- `delay = 0`: signals computed at bar T's **open** fill at bar T's open. The
-  engine automatically restricts your data view to strictly-before-the-open,
-  so you still cannot cheat — but `delay = 1` is the right default while
+- `delay = 0`: signals computed at bar T's **open** fill at bar T's open.
+  The engine still restricts your data view to strictly-before-the-open, but
+  same-print fills are **refused** unless you pass
+  `BacktestEngine(..., allow_same_print_fills=True)` (or
+  `run_backtest(..., allow_same_print_fills=True)`). Without that opt-in the
+  constructor raises `ValueError`. `delay = 1` is the right default while
   learning.
 
 ### 3b. Implement `calculate_signals`
@@ -240,9 +243,11 @@ Useful objects on the portfolio after a run:
 | `cash`, `positions` | Final ledger state. |
 
 The headline numbers, in words: **total return** is what you made;
-**Sharpe** is return per unit of daily volatility (annualized, ×√252);
-**max drawdown** is the worst peak-to-trough loss; **Calmar** divides the
-annualized return by that drawdown.
+**Sharpe** is return per unit of volatility on **simple** returns,
+annualized by `√N_T` where `N_T` is measured from the equity index
+(hourly/crypto series are never silently ×√252); **max drawdown** is the
+worst peak-to-trough loss; **Calmar** divides the annualized return by that
+drawdown.
 
 ## Step 8 — Render a tearsheet
 

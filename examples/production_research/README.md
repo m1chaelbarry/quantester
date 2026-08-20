@@ -53,7 +53,14 @@ Rules you will see enforced in the code:
 
 - Strategies talk **only** through `SignalEvent`s; they never read raw frames
   outside `DataHandler.get_latest_bars` / `get_current_open`.
-- `delay=1`: signal on bar T close → fill at bar T+1 open.
+- `delay=1`: signal on bar T close → fill at bar T+1 open. `delay=0` same-print
+  fills are refused unless `BacktestEngine(..., allow_same_print_fills=True)`.
+- `PercentEquitySizer` sizes off **cash** by default (not mark-to-market
+  equity). Pass `base="equity"` only if you want the procyclical MTM path.
+- `DailyDrawdownBreaker` rolls at session close (16:00 America/New_York), not
+  UTC midnight. Daily 00:00 UTC bars still map to their own date's session.
+- Tearsheet / `summarize` / `fast_backtest.sharpe` use **simple** returns and
+  a **measured** periods-per-year from the datetime index (not log × √252).
 - `fill_price` embeds spread/slippage/impact; cash is charged
   `qty × fill_price + commission` once (no double-counting `slippage_cost`).
 - The vectorized twin (`momentum_positions` / `fast_backtest`) must
@@ -91,7 +98,7 @@ flowchart TD
 | `[3]` | Event equity ≈ fast-track equity (or MCPT is invalid) |
 | `[4]` | Chop last N bars — position mismatch = look-ahead leak |
 | `[5]` | Expanding train → lock params → score next test block |
-| `[6]` | CPCV + triple-barrier API (N/A for our rule-based primary) |
+| `[6]` | CPCV (integer-bar embargo) + high/low triple-barrier API (N/A for our rule-based primary) |
 | `[7]` | PBO from the trial PnL matrix — gate **PBO < 0.10** |
 | `[8]` | Deflate champion Sharpe by honest N — gate **DSR ≥ 0.95** |
 | `[9]` | Autocorr gate, then MCPT with re-optimize-on-permute — gate **p < 0.05** |
@@ -116,8 +123,8 @@ example is the **shape of the process**, not the Sharpe number.
 | Package | Symbols used here |
 | --- | --- |
 | `data` | `audit_ohlcv_frame`, `HistoricCSVDataHandler` |
-| `strategy` | custom twin + `meta_labeling.triple_barrier_labels` |
-| `portfolio` | `PortfolioManager`, `FixedUnitSizer`, `PercentEquitySizer`, `MarginMonitor`, `DailyDrawdownBreaker` |
+| `strategy` | custom twin + `meta_labeling.triple_barrier_labels` (OHLC high/low path) |
+| `portfolio` | `PortfolioManager`, `FixedUnitSizer`, `PercentEquitySizer(base="cash")`, `MarginMonitor`, `DailyDrawdownBreaker` |
 | `execution` | `SimulatedExecutionHandler`, `CostModel`, `retail_cost_scenario` |
 | `engine` | `BacktestEngine` |
 | `analytics` | `summarize`, `annualized_sharpe`, `TrialsRegistry`, `dsr_from_registry`, `generate_tearsheet` |

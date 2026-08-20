@@ -11,7 +11,8 @@ alwaysApply: false
 - Subclass `Strategy` (`quantester/strategy/base.py`); implement
   `calculate_signals(event, events_queue)` pushing `SignalEvent`s.
 - Set `delay`: `1` = signal at close T, fill at open T+1 (default, safest);
-  `0` = Delay-0 at the current open (intra-bar guard applies automatically).
+  `0` = Delay-0 at the current open (intra-bar guard applies automatically;
+  `BacktestEngine` requires `allow_same_print_fills=True`).
 - Carry position state on the instance and emit only on CHANGES (see
   `MovingAverageCrossStrategy`); never re-emit the same target every bar.
 - Check `event.bars.get(symbol) is not None` before acting — a missing bar

@@ -425,7 +425,7 @@ def run_backtest(
         raise ValueError(f"capital must be positive (starting cash); got {capital!r}")
     if sizer is None and not (0.0 < float(equity_pct) <= 1.0):
         raise ValueError(
-            f"equity_pct must be in (0, 1] — e.g. 0.9 means 'use 90% of equity'. "
+            f"equity_pct must be in (0, 1] — e.g. 0.9 means 'use 90% of cash'. "
             f"Got {equity_pct!r}."
         )
 

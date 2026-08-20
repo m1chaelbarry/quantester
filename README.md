@@ -24,8 +24,8 @@ permutation testing, drawdown double bootstrap, O-U synthetic paths).
 
 - **State-Based Temporal Firewall**: strategies declare `delay` (0 or 1 bars);
   orders carry `earliest_fill_time` enforced by the execution ledger. `delay=0`
-  fills at the bar's open under an intra-bar visibility guard (data strictly
-  before the fill timestamp).
+  fills at the bar's open under an intra-bar visibility guard, but only when
+  you pass `allow_same_print_fills=True` to the engine.
 - **No silent history rewrites**: multi-symbol data aligns on an outer-join
   timestamp union; missing bars mark the asset untradeable, never erased.
 - **Anti-overfitting gates**: Purged/embargoed combinatorial CV, CSCV PBO gate

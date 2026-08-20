@@ -97,6 +97,7 @@ def event_backtest(
     handler = HistoricCSVDataHandler({SYMBOL: df})
 
     # 2) Strategy: delay=1 → signal on bar T close, fill at bar T+1 open.
+    #    delay=0 needs BacktestEngine(..., allow_same_print_fills=True) (D4).
     strategy = TrendMomentumStrategy(
         handler, SYMBOL, lookback=lookback, allow_short=True,
     )
@@ -111,6 +112,8 @@ def event_backtest(
         sizer=sizer or FixedUnitSizer(units_for(df)),
         margin_monitor=MarginMonitor(max_leverage=3.0) if use_risk_overlays else None,
         drawdown_breaker=(
+            # D11: session-close roll (16:00 America/New_York). Daily bars
+            # stamped 00:00 UTC still map to their own date's session.
             DailyDrawdownBreaker(max_intraday_dd=0.08) if use_risk_overlays else None
         ),
     )
@@ -174,7 +177,8 @@ class InvertedStrategy:
 def fast_sharpe(
     df: pd.DataFrame, lookback: int, cost_model=None, *, invert: bool = False
 ) -> float:
-    """Annualized Sharpe from the vectorized twin (same signals as the event form)."""
+    """Tearsheet Sharpe from the vectorized twin (D7: FastResult.sharpe is
+    ``annualized_sharpe`` — simple returns, measured bar calendar)."""
     target = momentum_positions(df["close"], lookback=lookback)
     if invert:
         target = -target

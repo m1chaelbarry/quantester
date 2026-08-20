@@ -258,8 +258,8 @@ def stage_champion_event(is_df: pd.DataFrame, lookback: int):
     portfolio = event_backtest(
         is_df,
         lookback,
-        sizer=PercentEquitySizer(0.95),  # size off live equity each bar
-        use_risk_overlays=True,          # margin + intraday DD breaker
+        sizer=PercentEquitySizer(0.95, base="cash"),  # D10: cash, not MTM equity
+        use_risk_overlays=True,  # margin + session-close DD breaker (D11)
     )
     equity = portfolio.equity_curve
     stats = summarize(equity)
@@ -388,7 +388,7 @@ def stage_walk_forward(is_df: pd.DataFrame, lookbacks: tuple, test_bars: int):
 # STAGE [6] — CPCV + triple-barrier (educational)
 # WHAT: Show the API you must use the moment a secondary model is fitted.
 # WHY:  Our primary rule is rule-based → CPCV gate is NOT_APPLICABLE.
-# NEED: CombinatorialPurgedKFold, triple_barrier_labels, LogisticRegression
+# NEED: CombinatorialPurgedKFold (lookahead bars), triple_barrier_labels(ohlc=), LR
 # ===========================================================================
 def stage_cpcv_meta(is_df: pd.DataFrame, lookback: int) -> dict:
     _banner("6", "CPCV + TRIPLE-BARRIER META-LABELS (educational secondary fit)")
@@ -415,8 +415,11 @@ def stage_cpcv_meta(is_df: pd.DataFrame, lookback: int) -> dict:
     events.index = changes.index
 
     # Labels: did the side hit TP before SL within max_holding bars?
+    # D12: high/low path is the default when OHLC is available (pass ohlc=).
+    # Callers holding only closes keep the legacy close-only path.
     y = triple_barrier_labels(
-        close, events, tp_pct=0.02, sl_pct=0.02, max_holding=10
+        close, events, tp_pct=0.02, sl_pct=0.02, max_holding=10,
+        ohlc=is_df,
     )
 
     # Tiny feature set for the educational logistic meta-labeler.
@@ -431,7 +434,12 @@ def stage_cpcv_meta(is_df: pd.DataFrame, lookback: int) -> dict:
         [close.index[min(close.index.get_loc(t) + 10, len(close) - 1)] for t in X.index],
         index=X.index,
     )
-    cpcv = CombinatorialPurgedKFold(n_groups=6, k_test=2, t1=t1, pct_embargo=0.01)
+    # D8: embargo is an integer bar window. lookahead=max_holding →
+    # embargo = lookahead - 1 positions after the test label end.
+    # pct_embargo survives only as an explicit de Prado ~0.01T override.
+    cpcv = CombinatorialPurgedKFold(
+        n_groups=6, k_test=2, t1=t1, lookahead=10,
+    )
 
     scores = []
     for train_idx, test_idx in cpcv.split(X):
@@ -711,7 +719,7 @@ def stage_gates(payload: dict):
             "delay": 1,
             "costs": "CostModel + retail stress scenarios",
             "sizing": "FixedUnitSizer(≈95% equity) for research matrix; "
-                      "PercentEquitySizer(0.95) for champion event run",
+                      "PercentEquitySizer(0.95, base='cash') for champion event run",
         },
         random_seeds={"market": SEED, "mcpt": SEED},
         performance=payload["performance"],
