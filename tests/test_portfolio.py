@@ -143,6 +143,112 @@ def test_hedge_ratio_zero_does_not_collapse_to_one():
     assert HedgeRatioSizer(0.5)(_X(), _portfolio(), 25.0) == 0.0
 
 
+# --------------------------------------------------------------------------
+# D10 (ticket 26): live sizers size on cash, not mark-to-market equity
+# --------------------------------------------------------------------------
+
+
+class _LongSignal:
+    signal_type = "LONG"
+    strength = 1.0
+    stop_distance = 10.0
+
+    def __init__(self, timestamp=None):
+        self.timestamp = timestamp
+
+
+def _inflated_book():
+    """Equity 100k but cash only 20k (80k marked-to-market position)."""
+    portfolio = _portfolio()
+    portfolio.cash = 20_000.0
+    portfolio.positions["AAA"] = 8_000.0
+    portfolio.last_prices["AAA"] = 10.0
+    return portfolio
+
+
+def test_sizers_default_base_is_cash_not_mtm_equity():
+    """D10: rising MTM equity with flat cash must NOT grow target quantity —
+    that is the procyclical unwind Penfold warns about (synthesis 1.16)."""
+    book = _inflated_book()
+    assert book.equity == pytest.approx(100_000.0)  # sanity: MTM-inflated
+
+    pct = PercentEquitySizer(0.5)  # default base="cash"
+    assert pct(_LongSignal(), book, 10.0) == pytest.approx(20_000 * 0.5 / 10.0)
+    # Explicit procyclical opt-in reproduces the legacy MTM number.
+    pct_eq = PercentEquitySizer(0.5, base="equity")
+    assert pct_eq(_LongSignal(), book, 10.0) == pytest.approx(100_000 * 0.5 / 10.0)
+
+    risk = FractionalRiskSizer(0.02)
+    assert risk(_LongSignal(), book, 10.0) == pytest.approx(20_000 * 0.02 / 10.0)
+    risk_eq = FractionalRiskSizer(0.02, base="equity")
+    assert risk_eq(_LongSignal(), book, 10.0) == pytest.approx(100_000 * 0.02 / 10.0)
+
+
+def test_sizers_zero_or_negative_cash_target_zero():
+    """No silent fall-back onto equity when cash is gone."""
+    book = _portfolio()
+    book.cash = -500.0
+
+    class _X:
+        signal_type = "SHORT"
+        strength = 1.0
+        hedge_ratio = 1.4
+        hedge_ref_price = 50.0
+        timestamp = None
+
+    assert PercentEquitySizer(0.5)(_LongSignal(), book, 10.0) == 0.0
+    assert FractionalRiskSizer(0.02)(_LongSignal(), book, 10.0) == 0.0
+    assert HedgeRatioSizer(0.5)(_X(), book, 25.0) == 0.0
+
+
+def test_cash_ewma_span_smooths_step_change():
+    """EWMA cash base reacts slower than raw cash to a step change."""
+    idx = pd.bdate_range("2024-01-01", periods=3, tz="UTC")
+    portfolio = _portfolio()
+    raw = PercentEquitySizer(0.5)
+    smooth = PercentEquitySizer(0.5, cash_ewma_span=4)
+    raw(_LongSignal(idx[0]), portfolio, 10.0)
+    smooth(_LongSignal(idx[0]), portfolio, 10.0)
+    portfolio.cash = 200_000.0  # step change
+    raw(_LongSignal(idx[1]), portfolio, 10.0)
+    smooth(_LongSignal(idx[1]), portfolio, 10.0)
+    t_raw = raw(_LongSignal(idx[2]), portfolio, 10.0)
+    t_smooth = smooth(_LongSignal(idx[2]), portfolio, 10.0)
+    assert t_raw == pytest.approx(200_000 * 0.5 / 10.0)  # fully caught up
+    assert 100_000 * 0.5 / 10.0 < t_smooth < t_raw      # still smoothing
+
+
+def test_sizer_base_and_span_validation():
+    with pytest.raises(ValueError, match="base"):
+        PercentEquitySizer(0.5, base="net-liquidation")
+    with pytest.raises(ValueError, match="cash_ewma_span"):
+        PercentEquitySizer(0.5, cash_ewma_span=1)
+
+
+def test_hedge_ratio_sizer_cash_base_keeps_beta_relation():
+    """q_X = -beta * q_Y still holds on the cash base (D10 + 1.13)."""
+    class _Y:
+        signal_type = LONG
+        strength = 1.0
+        hedge_ratio = 1.0
+        hedge_ref_price = 50.0
+        timestamp = None
+
+    class _X:
+        signal_type = "SHORT"
+        strength = 1.0
+        hedge_ratio = 1.4
+        hedge_ref_price = 50.0
+        timestamp = None
+
+    book = _inflated_book()  # cash 20k, equity 100k
+    sizer = HedgeRatioSizer(0.5)
+    q_y = sizer(_Y(), book, 50.0)
+    q_x = sizer(_X(), book, 25.0)
+    assert q_y == pytest.approx(20_000 * 0.5 / 50.0)  # cash, not equity
+    assert q_x == pytest.approx(-1.4 * q_y)
+
+
 def test_kelly():
     assert kelly_fraction(0.6, 2.0) == pytest.approx(0.4)
     assert kelly_gaussian(0.001, 0.0004) == pytest.approx(2.5)
@@ -163,6 +269,20 @@ def test_optimal_f_twr_maximizes():
     f_stressed = optimal_f(trades, worst_loss=trades.min() * 1.5)
     f_plain = optimal_f(trades, worst_loss=trades.min() * 1.0)
     assert f_stressed / abs(trades.min() * 1.5) <= f_plain / abs(trades.min()) + 1e-9
+
+
+def test_optimal_f_default_is_raw_biggest_loss():
+    """D3 (ticket 21): the default W is the raw historical BiggestLoss
+    (gap_stress 1.0); the 1.5x stress is an opt-in, not the default."""
+    trades = np.array([2.0, -1.0, 3.0, -1.0, 1.5, -0.5])
+    default = optimal_f(trades)
+    assert default == pytest.approx(optimal_f(trades, gap_stress=1.0))
+    assert default == pytest.approx(
+        optimal_f(trades, worst_loss=float(trades.min()))
+    )
+    # The opt-in stress still engages and never raises the effective fraction.
+    stressed = optimal_f(trades, gap_stress=1.5)
+    assert stressed / abs(trades.min() * 1.5) <= default / abs(trades.min()) + 1e-9
 
 
 def test_kakushadze_effective_returns():
@@ -244,6 +364,49 @@ def test_breaker_threshold_and_rollover_reset():
     # New day baseline is the carried 94k: another 4.5%+ slide re-trips.
     assert breaker.update(D2, 89_700.0)
     assert breaker.triggered_count == 2
+
+
+def test_breaker_rolls_on_session_close_not_utc_midnight():
+    """D11 (ticket 27): the breaker's day boundary is the configured session
+    roll (default 16:00 America/New_York), never a naive UTC date change."""
+    breaker = DailyDrawdownBreaker()
+    # 14:00 UTC = 09:00 ET (before the 16:00 roll): session of Jan 2.
+    t0 = pd.Timestamp("2024-01-02 14:00", tz="UTC")
+    assert not breaker.update(t0, 100_000.0)  # seeds the baseline
+    # 23:00 UTC = 18:00 ET Jan 2 (after the roll): session Jan 3 — baseline
+    # carries 100k; a 5% drop trips the 4.5% breaker.
+    t1 = pd.Timestamp("2024-01-02 23:00", tz="UTC")
+    assert breaker.update(t1, 95_000.0)
+    assert breaker.halted
+    # 01:00 UTC Jan 3 = 20:00 ET Jan 2: SAME NY session as t1. The UTC date
+    # change at 00:00 must NOT reset the halt or the baseline.
+    t2 = pd.Timestamp("2024-01-03 01:00", tz="UTC")
+    assert not breaker.update(t2, 94_000.0)
+    assert breaker.halted  # no midnight reset
+    # 21:30 UTC = 16:30 ET Jan 3 (after the roll): new session baseline; the
+    # halt clears and the baseline carries the last valuation (94k).
+    t3 = pd.Timestamp("2024-01-03 21:30", tz="UTC")
+    assert not breaker.update(t3, 94_000.0)
+    assert not breaker.halted
+    # A fresh 4.5% slide off the carried 94k re-trips in the new session.
+    assert breaker.update(t3, 89_700.0)
+    assert breaker.triggered_count == 2
+
+
+def test_breaker_custom_session_roll():
+    """A crypto-style midnight-UTC session roll keeps date-change behavior."""
+    import datetime as _dt
+
+    breaker = DailyDrawdownBreaker(
+        day_roll_time=_dt.time(0, 0), tz="UTC",
+    )
+    d1 = pd.Timestamp("2024-01-02 12:00", tz="UTC")
+    d2 = pd.Timestamp("2024-01-03 12:00", tz="UTC")
+    assert not breaker.update(d1, 100_000.0)
+    assert breaker.update(d1, 95_000.0)  # trips same-session
+    assert breaker.halted
+    assert not breaker.update(d2, 94_000.0)  # rolled at 00:00 UTC: halt clears
+    assert not breaker.halted
 
 
 def test_breaker_liquidates_cancels_and_blocks_entries():

@@ -1,7 +1,7 @@
 # Switch tearsheet Sharpe to simple returns
 
 Type: task
-Status: open
+Status: resolved
 Part of: [Literature remediation decision map](../map.md)
 
 ## Goal
@@ -40,3 +40,7 @@ Keep unchanged: `quantester/visualization/static.py` rolling Sharpe (already sim
 - Changing MCPT shuffle representation.
 - Fast-track `FastResult.sharpe` (ticket 23).
 - `periods` default / measured \(N_T\) (ticket 20).
+
+## Answer
+
+Shipped (commit aaccdcc). `annualized_sharpe` / `summarize` use simple returns via `simple_returns()`; `log_returns` remains for the documented Masters MCPT exception; `auto_register_from_equity` stores simple-return moments (and `best_trial` now surfaces mean/std); the tearsheet histogram moved to simple returns. Tests rewritten onto simple paths incl. a simple-vs-log divergence case.

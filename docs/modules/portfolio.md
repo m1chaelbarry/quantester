@@ -61,12 +61,17 @@ A sizer is any callable `(signal, portfolio, ref_price) -> target_qty`
 returning the **target position** (signed). Wire it via
 `PortfolioManager(sizer=...)`.
 
+All three allocative sizers default to `base="cash"` (ruling D10): targets
+scale with available cash, not mark-to-market equity (procyclical). Pass
+`base="equity"` for the legacy MTM behavior, and `cash_ewma_span=N` to size
+off an EWMA of cash (Carver-style smoothing). Non-positive cash targets 0.
+
 | Sizer | Target |
 | --- | --- |
-| `PercentEquitySizer(pct=0.5)` | `± pct × equity × strength / ref_price` (0 on `EXIT`). Compounds with account size. |
+| `PercentEquitySizer(pct=0.5)` | `± pct × base × strength / ref_price` (0 on `EXIT`). Compounds with the sizing base. |
 | `FixedUnitSizer(units=100.0)` | `± units × strength` shares. Used for fast-track parity checks. |
-| `FractionalRiskSizer(risk_fraction=0.02)` | `± equity × risk_fraction / stop_distance`. Requires `signal.stop_distance` in price units (e.g. `2 × ATR`). A full stop-out loses ~`risk_fraction` of equity before friction. |
-| `HedgeRatioSizer(pct=0.5)` | Spread sizing: the dependent leg carries `hedge_ratio=1` (sized `pct × equity / P_Y`); the hedge leg carries `hedge_ratio=β` plus `hedge_ref_price=P_Y`, so `q_X = −β·q_Y`. Independent per-leg percent-equity sizing is not dollar-neutral on a cointegrating residual (synthesis §1.13). Wired by `PairsTradingStrategy`. |
+| `FractionalRiskSizer(risk_fraction=0.02)` | `± base × risk_fraction / stop_distance`. Requires `signal.stop_distance` in price units (e.g. `2 × ATR`). A full stop-out loses ~`risk_fraction` of the base before friction. |
+| `HedgeRatioSizer(pct=0.5)` | Spread sizing: the dependent leg carries `hedge_ratio=1` (sized `pct × base / P_Y`); the hedge leg carries `hedge_ratio=β` plus `hedge_ref_price=P_Y`, so `q_X = −β·q_Y`. Independent per-leg percent sizing is not dollar-neutral on a cointegrating residual (synthesis §1.13). Wired by `PairsTradingStrategy`. |
 
 Signals can also carry `stop_price`: the portfolio then rests a flattening
 `STOP` order on the execution ledger alongside the entry (gap-through fills
@@ -98,7 +103,7 @@ fractions/weights *outside* the event loop (e.g. to calibrate a sizer):
 | `volatility_parity_weights(cov)` | `w_i ∝ 1/σ_i`, normalized — equal risk contribution. |
 | `hpr(trades, f, worst_loss)` | Vince's Holding Period Return: `1 + f·(−Trade_i / WorstLoss)`. |
 | `twr(trades, f, worst_loss)` | Terminal Wealth Relative: Π HPR (0 if any HPR ≤ 0 — ruin). |
-| `optimal_f(trades, worst_loss=None, gap_stress=1.5, f_max=1.0)` | `f* = argmax TWR(f)` over `[0, f_max]`. `worst_loss` defaults to the historical worst loss × `gap_stress` — stressed *below* the nominal stop because stops do not guarantee fills through gaps (and unconstrained optimal-f is catastrophically sensitive to the max-loss estimate). Returns `f_max` when there are no losing trades. |
+| `optimal_f(trades, worst_loss=None, gap_stress=1.0, f_max=1.0)` | `f* = argmax TWR(f)` over `[0, f_max]`. `worst_loss` defaults to the raw historical BiggestLoss (Vince MoMM ch. 1; ruling D3). `gap_stress > 1` is an explicit opt-in stress below the nominal stop — gap-through fills are already enforced by the stop ledger. Returns `f_max` when there are no losing trades. |
 | `kakushadze_effective_returns(expected, linear_costs)` | `E_eff = sign(E)·max(|E| − τ, 0)` — apply to expected returns **before** weight optimization so edges smaller than linear costs are zeroed. |
 
 ## Risk overlays
@@ -112,17 +117,23 @@ Tracks `leverage = gross_exposure / equity` (∞ when equity ≤ 0). On a breach
 orders shrinking **every** position by `liquidation_fraction`, fillable at the
 next bar's open.
 
-### `DailyDrawdownBreaker(max_intraday_dd=0.045)`
+### `DailyDrawdownBreaker(max_intraday_dd=0.045, day_roll_time=time(16, 0), tz="America/New_York")`
 
-Account-level circuit breaker against the **daily opening balance** (the
-prior trading day's last valuation — the exchange-rollover carry). When
+Account-level circuit breaker against the **session opening balance** (the
+prior session's last valuation — the exchange-rollover carry). When
 close-marked equity falls `≥ max_intraday_dd` below it, the portfolio:
 
 1. cancels every resting order across the book (`CANCEL`),
 2. market-liquidates all positions at the next bar's open (retried each open
    until filled), and
-3. suspends **all** signal flow until the next trading-day rollover resets
-   the halt.
+3. suspends **all** signal flow until the next session rollover resets the
+   halt.
+
+The session boundary is `day_roll_time` in `tz` (ruling D11 — Harris
+session-close, not a naive UTC-midnight date change that mis-rolls 24/7
+crypto/FX). Daily bars stamped 00:00 UTC map to their own date's session, so
+daily behavior is unchanged. A full exchange holiday calendar is out of
+scope; `day_roll_time` + `tz` is the first-wave substitute.
 
 0.045 provides a 0.5% cushion under the 5% daily-loss limit common in
 proprietary evaluations. Signals emitted by a halted strategy are dropped

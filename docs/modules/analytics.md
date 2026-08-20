@@ -12,18 +12,20 @@ the portfolio recorded. Nothing in this package is wired into the event loop.
 
 | Function | Returns |
 | --- | --- |
-| `log_returns(equity)` | Daily log returns. |
-| `annualized_sharpe(equity, risk_free_daily=0.0, periods_per_year=252)` | `(μ_daily − Rf)/σ_daily × √periods_per_year`. |
+| `log_returns(equity)` | Log returns (Masters MCPT/resampling exception path — not the tearsheet default). |
+| `simple_returns(equity)` | Simple returns `E_t/E_{t−1} − 1` — the canonical tearsheet path (D1). |
+| `measured_periods_per_year(index)` | Measured bar frequency `N / span-in-years` on a DatetimeIndex (D2; Chan measured frequency — not Carver's 256 convenience, not median-Δt smear). |
+| `annualized_sharpe(equity, risk_free_daily=0.0, periods_per_year=None)` | **Simple-return** Sharpe: `(μ_r − Rf)/σ_r × √periods_per_year` (D1; Carver drag stays linear in Sharpe units). |
 | `max_drawdown(equity)` | Dict: `max_drawdown` (worst peak-to-trough, negative), `duration` (calendar days to recover the high-watermark), `peak`, `trough`. |
 | `drawdown_series(equity)` | Underwater series `equity/HWM − 1` (for plotting). |
-| `calmar_ratio(equity, periods_per_year=252)` | Annualized return / \|max drawdown\|. |
-| `summarize(equity, risk_free_daily=0.0, periods_per_year=252)` | One dict with total return, Sharpe, MDD, MDD duration, Calmar — the standard headline block. |
+| `calmar_ratio(equity, periods_per_year=None)` | Annualized return / \|max drawdown\|. |
+| `summarize(equity, risk_free_daily=0.0, periods_per_year=None)` | One dict with total return, Sharpe, MDD, MDD duration, Calmar — the standard headline block. |
 
-`periods_per_year` is the bar calendar's annualization and is always an
-explicit argument — never inferred from the index. 252 suits US equity
-dailies; pass ~1638 for NYSE hourly, 365/8760 for 24/7 crypto daily/hourly.
-(The 252-vs-256-vs-measured policy question stays parked behind the
-literature-decision map; the default merely stops being silent.)
+With `periods_per_year=None` (the default), the bar calendar is **measured**
+from a datetime index — hourly and 24/7-crypto series are never silently
+annualized on 252. Pass an explicit value to override (e.g. 256 for
+Carver-style research); non-datetime indexes fall back to `TRADING_DAYS =
+252`. Cash yield stays `/365` simple interest (D2 KEEP).
 
 ### Carver cost drag
 
@@ -54,7 +56,7 @@ stats = generate_tearsheet(
 )
 ```
 
-Renders a PNG — equity curve, underwater (drawdown) plot, log-return
+Renders a PNG — equity curve, underwater (drawdown) plot, simple-return
 histogram, and a monospace stats box — and returns the summary dict.
 Matplotlib runs headless (`Agg`), so this works on servers and CI.
 

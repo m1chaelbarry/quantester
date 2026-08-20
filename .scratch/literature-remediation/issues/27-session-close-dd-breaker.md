@@ -1,7 +1,7 @@
 # Session-close drawdown breaker
 
 Type: task
-Status: open
+Status: resolved
 Part of: [Literature remediation decision map](../map.md)
 
 ## Goal
@@ -35,3 +35,7 @@ Ruling: notebook D11 (Harris ch. 22). First-wave leftover from [Which non-contro
 
 - Full exchange holiday calendar (note the fog: no first-class session calendar today; `day_roll_time` + tz is the first-wave substitute).
 - Changing the 4.5% threshold.
+
+## Answer
+
+Shipped (commit df7ebfb). `DailyDrawdownBreaker(day_roll_time=time(16, 0), tz="America/New_York")`: session id = trading date in `tz`, rolling at `day_roll_time`; a 00:00 UTC date change neither resets the halt nor the baseline, and daily bars stamped 00:00 UTC map to their own date's session (existing daily tests unchanged). 4.5% threshold and liquidate/cancel/block behavior kept. Full holiday calendar remains fog (day_roll_time + tz is the substitute).

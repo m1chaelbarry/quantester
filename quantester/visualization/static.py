@@ -365,19 +365,21 @@ def plot_monthly_returns(equity: pd.Series, title: str = "Monthly returns (%)",
 
 
 def plot_rolling_metrics(equity: pd.Series, window: int = 63,
-                         periods_per_year: float = 252, path=None,
+                         periods_per_year: float | None = None, path=None,
                          figsize=(12, 8), title: str | None = None):
     """Rolling annualized Sharpe, rolling volatility, and drawdown.
 
-    ``periods_per_year`` is the explicit annualization of the bar calendar
-    (252 equity dailies by default); it is never inferred from the index.
+    ``periods_per_year=None`` measures the bar calendar from the equity index
+    (D2, ``performance.measured_periods_per_year``); pass an explicit value
+    to override. Rolling Sharpe stays simple-return (D1 KEEP).
     """
     from ..analytics import performance
 
+    ppy = performance._resolve_periods_per_year(equity.index, periods_per_year)
     rets = equity.pct_change()
     roll_sharpe = (rets.rolling(window).mean() / rets.rolling(window).std(ddof=1)
-                   * np.sqrt(periods_per_year))
-    roll_vol = rets.rolling(window).std(ddof=1) * np.sqrt(periods_per_year)
+                   * np.sqrt(ppy))
+    roll_vol = rets.rolling(window).std(ddof=1) * np.sqrt(ppy)
     dd = performance.drawdown_series(equity)
 
     fig, axes = plt.subplots(3, 1, figsize=figsize, sharex=True,

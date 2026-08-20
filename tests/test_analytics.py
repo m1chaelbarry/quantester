@@ -26,12 +26,130 @@ def _equity_from_log_returns(log_rets, start=100.0):
     return pd.Series(start * np.exp(np.concatenate([[0.0], np.cumsum(log_rets)])), index=idx)
 
 
+def _equity_from_simple_returns(simple_rets, start=100.0):
+    idx = pd.bdate_range("2024-01-01", periods=len(simple_rets) + 1)
+    return pd.Series(
+        start * np.cumprod(np.concatenate([[1.0], 1.0 + np.asarray(simple_rets)])),
+        index=idx,
+    )
+
+
+def test_measured_periods_per_year_daily_calendar():
+    """D2: a weekday daily calendar measures in the ~252 neighborhood — the
+    measured value, never a hardcoded 252 and not Carver's convenience 256."""
+    from quantester.analytics.performance import measured_periods_per_year
+
+    idx = pd.bdate_range("2024-01-01", "2024-12-31", tz="UTC")
+    n = measured_periods_per_year(idx)
+    assert 230.0 < n < 290.0
+    assert n != 256.0
+
+
+def test_measured_periods_per_year_hourly_calendar():
+    """A 24/7 hourly index measures ~8760, not 252 (Chan: actual frequency)."""
+    from quantester.analytics.performance import measured_periods_per_year
+
+    idx = pd.date_range("2024-01-01", periods=2000, freq="h", tz="UTC")
+    assert measured_periods_per_year(idx) == pytest.approx(8760.0, rel=0.02)
+
+
+def test_measured_periods_per_year_requires_two_observations():
+    from quantester.analytics.performance import measured_periods_per_year
+
+    with pytest.raises(ValueError):
+        measured_periods_per_year(pd.DatetimeIndex(["2024-01-01"], tz="UTC"))
+    with pytest.raises(TypeError):
+        measured_periods_per_year(pd.RangeIndex(10))  # no clock, can't measure
+
+
+def test_sharpe_and_calmar_default_to_measured_periods():
+    """D2: without an explicit override, metrics annualize with the series'
+    measured N_T when the index is datetime."""
+    from quantester.analytics.performance import measured_periods_per_year
+
+    simple = np.tile([0.002, -0.001], 500)
+    idx = pd.date_range("2024-01-01", periods=1001, freq="h", tz="UTC")
+    equity = pd.Series(
+        100.0 * np.cumprod(np.concatenate([[1.0], 1.0 + simple])), index=idx
+    )
+    measured = measured_periods_per_year(idx)
+    rets = pd.Series(simple)
+    expected = float(rets.mean() / rets.std(ddof=1) * np.sqrt(measured))
+    assert annualized_sharpe(equity) == pytest.approx(expected, rel=1e-9)
+    # Calmar with measured N_T: years = bars / measured.
+    from quantester.analytics.performance import summarize
+
+    stats = summarize(equity)
+    assert stats["sharpe"] == pytest.approx(expected, rel=1e-9)
+    assert stats["calmar"] != pytest.approx(
+        calmar_ratio(equity, periods_per_year=252.0)
+    )
+
+
+def test_sharpe_non_datetime_index_falls_back_to_trading_days():
+    """No datetime index, no override: the explicit 252 fallback applies."""
+    rets = np.tile([0.002, -0.001], 50)
+    equity = pd.Series(
+        100.0 * np.cumprod(np.concatenate([[1.0], 1.0 + rets]))
+    )  # RangeIndex
+    expected = float(pd.Series(rets).mean() / pd.Series(rets).std(ddof=1)
+                     * np.sqrt(252))
+    assert annualized_sharpe(equity) == pytest.approx(expected, rel=1e-9)
+
+
+def test_explicit_periods_override_256_for_carver_research():
+    """Carver's 256 stays available as an explicit override, not a default."""
+    equity = _equity_from_simple_returns(np.tile([0.002, -0.001], 50))
+    measured_default = annualized_sharpe(equity)
+    carver = annualized_sharpe(equity, periods_per_year=256.0)
+    assert carver != pytest.approx(measured_default)
+    rets = pd.Series(np.tile([0.002, -0.001], 50))
+    assert carver == pytest.approx(
+        float(rets.mean() / rets.std(ddof=1) * np.sqrt(256.0)), rel=1e-9
+    )
+
+
 def test_sharpe_manual_annualization():
-    log_rets = np.tile([0.002, -0.001], 50)
-    equity = _equity_from_log_returns(log_rets)
-    rets = pd.Series(log_rets)
+    """D1: the tearsheet Sharpe is computed on SIMPLE returns (Carver cost
+    drag stays linear in Sharpe units); log returns stay available but are
+    not the tearsheet default."""
+    simple = np.tile([0.002, -0.001], 50)
+    equity = _equity_from_simple_returns(simple)
+    rets = pd.Series(simple)
     expected = (rets.mean() / rets.std(ddof=1)) * np.sqrt(252)
-    assert annualized_sharpe(equity) == pytest.approx(float(expected), rel=1e-9)
+    assert annualized_sharpe(equity, periods_per_year=252) == pytest.approx(
+        float(expected), rel=1e-9
+    )
+
+
+def test_sharpe_simple_not_log_on_large_moves():
+    """A path where simple and log SR disagree proves the tearsheet moved."""
+    simple = np.array([0.25, -0.18] * 40)
+    equity = _equity_from_simple_returns(simple)
+    simple_sr = float(pd.Series(simple).mean() / pd.Series(simple).std(ddof=1)
+                      * np.sqrt(252))
+    log_sr = float(pd.Series(np.log1p(simple)).mean()
+                   / pd.Series(np.log1p(simple)).std(ddof=1) * np.sqrt(252))
+    assert abs(simple_sr - log_sr) > 0.01 * abs(log_sr)  # they really differ
+    assert annualized_sharpe(equity, periods_per_year=252) == pytest.approx(
+        simple_sr, rel=1e-9
+    )
+
+
+def test_auto_register_stores_simple_moments():
+    """D1: registry moments feeding DSR are simple-return moments."""
+    from quantester.analytics.trials_registry import auto_register_from_equity
+
+    simple = np.array([0.05, -0.03, 0.02, -0.01] * 25)
+    equity = _equity_from_simple_returns(simple, start=100_000.0)
+    registry = TrialsRegistry()
+    auto_register_from_equity(registry, equity, strategy_id="t", params={})
+    best = registry.best_trial()
+    assert best["sharpe"] == pytest.approx(annualized_sharpe(equity), rel=1e-12)
+    assert best["mean"] == pytest.approx(float(np.mean(simple)), rel=1e-9)
+    # Not the log mean (they differ materially at 5% moves).
+    assert best["mean"] != pytest.approx(float(np.log1p(simple).mean()), rel=1e-3)
+    registry.close()
 
 
 def test_max_drawdown_known_path():
@@ -55,15 +173,15 @@ def test_calmar_positive_for_growth():
 def test_annualized_sharpe_periods_per_year_explicit():
     """Annualization is an explicit caller choice (synthesis §1.2 / §5.7):
     Sharpe scales by sqrt(periods_per_year)."""
-    equity = _equity_from_log_returns(np.tile([0.002, -0.001], 50))
-    daily = annualized_sharpe(equity)  # default stays the explicit 252
+    equity = _equity_from_simple_returns(np.tile([0.002, -0.001], 50))
+    daily = annualized_sharpe(equity, periods_per_year=252.0)
     hourly = annualized_sharpe(equity, periods_per_year=1638.0)
     assert hourly == pytest.approx(daily * np.sqrt(1638.0 / 252.0), rel=1e-9)
 
 
 def test_calmar_periods_per_year_explicit():
-    equity = _equity_from_log_returns(np.tile([0.003, -0.001], 60))
-    daily = calmar_ratio(equity)
+    equity = _equity_from_simple_returns(np.tile([0.003, -0.001], 60))
+    daily = calmar_ratio(equity, periods_per_year=252.0)
     crypto = calmar_ratio(equity, periods_per_year=365.0)
     assert daily > 0 and crypto > 0 and daily != pytest.approx(crypto)
 
@@ -71,13 +189,13 @@ def test_calmar_periods_per_year_explicit():
 def test_summarize_forwards_periods_per_year():
     from quantester.analytics.performance import summarize
 
-    equity = _equity_from_log_returns(np.tile([0.002, -0.001], 50))
-    default = summarize(equity)
+    equity = _equity_from_simple_returns(np.tile([0.002, -0.001], 50))
+    daily = summarize(equity, periods_per_year=252.0)
     hourly = summarize(equity, periods_per_year=1638.0)
     assert hourly["sharpe"] == pytest.approx(
-        default["sharpe"] * np.sqrt(1638.0 / 252.0), rel=1e-9
+        daily["sharpe"] * np.sqrt(1638.0 / 252.0), rel=1e-9
     )
-    assert hourly["calmar"] != pytest.approx(default["calmar"])
+    assert hourly["calmar"] != pytest.approx(daily["calmar"])
 
 
 def test_carver_drag_and_speed_limit():

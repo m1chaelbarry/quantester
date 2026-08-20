@@ -213,6 +213,32 @@ class PortfolioManager(Portfolio):
                     )
                 )
 
+    # ---------------------------------------------------- corporate actions
+
+    def update_from_corporate_action(self, event) -> None:
+        """Book an ex-date corporate action on the RAW price ledger (D9).
+
+        Dividend (Peterson ch. 11 cash booking): cash increases by
+        ``position × dividend_per_share`` for longs and decreases for shorts;
+        the close is NOT adjusted (no double-booking against total-return
+        prices). Split: position quantity scales by ``split_ratio`` and the
+        open lot's average price divides by it, keeping round-trip P&L
+        continuous across the split; cash is untouched. ETF-trick c_t stays
+        external to K_t — this is the cash ledger, never the spread index.
+        """
+        qty = self.positions.get(event.symbol, 0.0)
+        if event.kind == "dividend":
+            self.cash += qty * event.dividend_per_share
+        elif event.kind == "split":
+            if abs(qty) > 1e-12:
+                self.positions[event.symbol] = qty * event.split_ratio
+                lot = self._open_lots.get(event.symbol)
+                if lot is not None:
+                    lot["qty"] *= event.split_ratio
+                    lot["avg_price"] /= event.split_ratio
+        else:
+            raise ValueError(f"unknown corporate-action kind {event.kind!r}")
+
     # -------------------------------------------------------------------- fills
 
     def update_from_fill(self, fill):

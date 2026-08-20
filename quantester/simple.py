@@ -140,13 +140,18 @@ def load_yahoo(
     end=None,
     interval: str = "1d",
     *,
-    auto_adjust: bool = True,
+    auto_adjust: bool = False,
     **history_kwargs,
 ) -> dict[str, pd.DataFrame]:
     """Download Yahoo Finance OHLCV into a ``{symbol: DataFrame}`` map.
 
     Requires ``pip install "quantester[yfinance]"``. Pass the result straight
     into ``run_backtest``.
+
+    Default ``auto_adjust=False`` (ruling D9): raw prices. Corporate-action
+    cash flows (dividends/splits) require running ``YFinanceDataHandler``
+    directly — a plain frames map cannot carry the ex-date schedule.
+    ``auto_adjust=True`` is a documented total-return ranking mode.
     """
     from .data.yfinance_handler import YFinanceDataHandler
 
@@ -377,6 +382,7 @@ def run_backtest(
     costs: CostModel | None = None,
     strategy_kwargs: dict | None = None,
     truncate_last: int | None = None,
+    allow_same_print_fills: bool = False,
     **kwargs,
 ) -> BacktestResult:
     """Run a full event-driven backtest with safe defaults.
@@ -396,8 +402,10 @@ def run_backtest(
     capital
         Starting cash.
     equity_pct
-        Fraction of equity to deploy per signal when using the default sizer
-        (0.9 = use up to 90% of the account). Ignored if ``sizer=`` is set.
+        Fraction of the sizing base to deploy per signal when using the
+        default sizer (0.9 = use up to 90% of available cash — the default
+        base per ruling D10; MTM equity is an explicit opt-in via a custom
+        sizer). Ignored if ``sizer=`` is set. Kept name for API stability.
     sizer
         Optional custom sizer; default is ``PercentEquitySizer(equity_pct)``.
     costs
@@ -408,6 +416,10 @@ def run_backtest(
         Bare kwargs like ``fast=10`` are also accepted and merged here.
     truncate_last
         Drop the last N bars before running (used by look-ahead checks).
+    allow_same_print_fills
+        Opt-in for delay-0 strategies (fill at the print just observed).
+        Default False: same-print fills are unphysical without latency
+        modeling (Harris; ruling D4).
     """
     if capital <= 0:
         raise ValueError(f"capital must be positive (starting cash); got {capital!r}")
@@ -434,7 +446,10 @@ def run_backtest(
         sizer=sizer if sizer is not None else PercentEquitySizer(equity_pct),
     )
     execution = SimulatedExecutionHandler(costs if costs is not None else CostModel())
-    BacktestEngine(handler, built, portfolio, execution).run_backtest()
+    BacktestEngine(
+        handler, built, portfolio, execution,
+        allow_same_print_fills=allow_same_print_fills,
+    ).run_backtest()
     equity = portfolio.equity_curve
     stats = summarize(equity) if len(equity) else {
         "total_return": 0.0,

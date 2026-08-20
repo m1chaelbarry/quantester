@@ -1,7 +1,7 @@
 # Default Vince gap_stress to 1.0
 
 Type: task
-Status: open
+Status: resolved
 Part of: [Literature remediation decision map](../map.md)
 
 ## Goal
@@ -32,3 +32,7 @@ Ruling: [Keep Vince gap_stress, use realized gap-through W, or drop the 1.5×?](
 
 - Wiring \(f^*\) into `PortfolioManager` (D5 KEEP adjacent).
 - Replacing \(W\) with ledger gap-through PnL.
+
+## Answer
+
+Shipped (commit 297f84f). `optimal_f(..., gap_stress=1.0)`: W defaults to raw BiggestLoss (`trades.min()`); 1.5x remains an explicit opt-in and the existing effective-fraction de-lever comparison still holds. Docs (sizing docstring, portfolio.md, glossary, blueprint) updated. Stop fill semantics untouched.

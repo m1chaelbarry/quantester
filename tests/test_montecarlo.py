@@ -196,6 +196,52 @@ def test_stationary_bootstrap_block_contiguity():
     assert contiguity_iid < 0.1
 
 
+def test_fast_track_sharpe_calls_tearsheet_function(ohlc):
+    """D7 (ticket 23): FastResult.sharpe IS annualized_sharpe on the same
+    equity series — no private simple-x-sqrt(252) formula."""
+    from quantester.analytics.performance import annualized_sharpe
+
+    target = pd.Series(1.0, index=ohlc.index)
+    fast = fast_backtest(ohlc, target, CostModel())
+    assert fast.sharpe == pytest.approx(annualized_sharpe(fast.equity), rel=1e-12)
+    # Hand-computed simple-return Sharpe on measured N_T (not a private path):
+    from quantester.analytics.performance import measured_periods_per_year
+
+    rets = fast.equity.pct_change().dropna()
+    expected = float(
+        rets.mean() / rets.std(ddof=1)
+        * np.sqrt(measured_periods_per_year(fast.equity.index))
+    )
+    assert fast.sharpe == pytest.approx(expected, rel=1e-9)
+
+
+def test_fast_track_sharpe_matches_event_loop_on_parity_path(ohlc):
+    """Where the equity parity contract holds, event-loop and fast-track
+    Sharpes are the same number (D7 dual-track honesty)."""
+    from quantester.analytics.performance import summarize
+
+    costs = CostModel()
+    units = 100
+    handler = HistoricCSVDataHandler({"AAA": ohlc})
+    strategy = MovingAverageCrossStrategy(handler, "AAA", fast=3, slow=8)
+    portfolio = PortfolioManager(handler, 100_000.0, sizer=FixedUnitSizer(units))
+    engine = BacktestEngine(handler, strategy, portfolio,
+                            SimulatedExecutionHandler(costs))
+    engine.run_backtest()
+    target = MovingAverageCrossStrategy(None, "AAA", fast=3, slow=8).vectorized_signals(
+        {"AAA": ohlc}
+    )["AAA"]
+    fast = fast_backtest(ohlc, target, costs, initial_capital=100_000.0, units=units)
+
+    engine_equity = portfolio.equity_curve.reindex(ohlc.index).ffill()
+    assert np.allclose(
+        engine_equity.to_numpy(), fast.equity.to_numpy(), rtol=1e-9, atol=1e-6
+    )
+    assert fast.sharpe == pytest.approx(
+        summarize(engine_equity)["sharpe"], rel=1e-9
+    )
+
+
 def test_fast_track_engine_parity_price_aware_costs(ohlc):
     """Parity must also hold for notional-fee cost models: the engine and the
     fast-track both pass the fill reference price into commission()."""

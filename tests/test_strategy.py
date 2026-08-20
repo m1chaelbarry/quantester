@@ -121,6 +121,75 @@ def test_triple_barrier_same_bar_both_hit_is_stop():
     ).iloc[0] == 0
 
 
+# --------------------------------------------------------------------------
+# D12 (ticket 28): high/low is the DEFAULT path when OHLC exists
+# --------------------------------------------------------------------------
+
+
+def _ohlc_stop_wick_frame():
+    """Long entry: stop-loss wicked intra-bar, close never breaches."""
+    idx = pd.bdate_range("2024-01-01", periods=5, tz="UTC")
+    close = pd.Series([100.0, 99.5, 99.2, 99.8, 100.3], index=idx)
+    return pd.DataFrame(
+        {
+            "high": close + 0.2,  # tp = 101.1 never touched
+            "low": close - 0.5,   # sl = 98.9 wicked at idx[2] (98.7)
+            "close": close,
+        },
+        index=idx,
+    )
+
+
+def test_triple_barrier_auto_path_defaults_to_high_low():
+    """path="auto" (the default) uses high/low when an OHLC frame is passed;
+    path="close" is the explicit close-only opt-out."""
+    frame = _ohlc_stop_wick_frame()
+    events = pd.DataFrame({"t0": [frame.index[0]], "side": [1]})
+    assert triple_barrier_labels(
+        None, events, 0.011, 0.011, 4, ohlc=frame
+    ).iloc[0] == 0  # stop wick labels the stop by default
+    assert triple_barrier_labels(
+        None, events, 0.011, 0.011, 4, ohlc=frame, path="close"
+    ).iloc[0] == 1  # close path: vertical barrier, final close above entry
+    # No high/low anywhere -> close-only even under auto (legacy callers).
+    assert triple_barrier_labels(
+        frame["close"], events, 0.011, 0.011, 4
+    ).iloc[0] == 1
+
+
+def test_triple_barrier_path_and_input_validation():
+    frame = _ohlc_stop_wick_frame()
+    events = pd.DataFrame({"t0": [frame.index[0]], "side": [1]})
+    with pytest.raises(ValueError, match="path"):
+        triple_barrier_labels(frame["close"], events, 0.011, 0.011, 4,
+                              path="wick")
+    with pytest.raises(TypeError, match="close"):
+        triple_barrier_labels(None, events, 0.011, 0.011, 4)
+
+
+def test_fit_secondary_uses_ohlc_high_low_without_kwargs():
+    """fit_secondary given an OHLC frame labels on the high/low path (D12)."""
+    from sklearn.linear_model import LogisticRegression
+
+    from quantester.strategy.meta_labeling import MetaLabelingStrategy
+
+    frame = _ohlc_stop_wick_frame()
+    # Same entry bar, both sides: the long gets stop-wicked (0), the short
+    # takes profit through the same low wick (1). Close-path labels would be
+    # exactly flipped — a crisp contrast.
+    events = pd.DataFrame(
+        {"t0": [frame.index[0], frame.index[0]], "side": [1, -1]},
+        index=["long", "short"],
+    )
+    features = pd.DataFrame({"f": [0.0, 1.0]}, index=["long", "short"])
+    wrapper = MetaLabelingStrategy(
+        primary=BuyAndHoldStrategy(None), data_handler=None,
+        model=LogisticRegression(),
+    )
+    y = wrapper.fit_secondary(features, frame, events, 0.011, 0.011, 4)
+    assert list(y) == [0, 1]
+
+
 
 def test_meta_labeling_scales_strength(ohlc):
     from quantester.data.csv_handler import HistoricCSVDataHandler

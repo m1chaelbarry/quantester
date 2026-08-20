@@ -1,7 +1,7 @@
 # Fast-track Sharpe must call annualized_sharpe
 
 Type: task
-Status: open
+Status: resolved
 Part of: [Literature remediation decision map](../map.md)
 Blocked by: 19, 20
 
@@ -33,3 +33,7 @@ Ruling: [Dual-track: keep two engines, but must fast-track Sharpe match the tear
 
 - Implementing delay-0 / stops on the fast-track.
 - MCPT log-price shuffle.
+
+## Answer
+
+Shipped (commit 35e6ee3) after tickets 19+20 landed. `FastResult.sharpe` delegates to `annualized_sharpe(self.equity)` — simple returns (D1) on the measured calendar (D2); the private simple-x-sqrt(252) path is deleted; `daily_returns` stays for diagnostics. The event-loop/fast-track parity test now asserts Sharpe equality where equity parity holds. Dual architecture unchanged (no stops/limits/MOC/delay-0 on the fast track).

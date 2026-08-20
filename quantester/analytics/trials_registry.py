@@ -251,8 +251,9 @@ class TrialsRegistry:
 
     def best_trial(self) -> dict | None:
         row = self._conn.execute(
-            "SELECT id, params, sharpe, skew, kurt, n_obs, experiment_hash, "
-            "strategy_id FROM trials ORDER BY sharpe DESC LIMIT 1"
+            "SELECT id, params, sharpe, mean, std, skew, kurt, n_obs, "
+            "experiment_hash, strategy_id FROM trials ORDER BY sharpe DESC "
+            "LIMIT 1"
         ).fetchone()
         if row is None:
             return None
@@ -260,11 +261,13 @@ class TrialsRegistry:
             "id": row[0],
             "params": json.loads(row[1]),
             "sharpe": row[2],
-            "skew": row[3],
-            "kurt": row[4],
-            "n_obs": row[5],
-            "experiment_hash": row[6],
-            "strategy_id": row[7],
+            "mean": row[3],
+            "std": row[4],
+            "skew": row[5],
+            "kurt": row[6],
+            "n_obs": row[7],
+            "experiment_hash": row[8],
+            "strategy_id": row[9],
         }
 
     # ------------------------------------------------- parallel-safe write path
@@ -322,10 +325,12 @@ def auto_register_from_equity(
 ) -> dict:
     """Compute return moments from an equity curve and register the trial.
 
-    Moments are taken from **log** returns to match ``analytics.performance``
-    Sharpe convention. Simple returns remain available via ``metrics``.
+    Moments are taken from **simple** returns to match the D1 canonical
+    ``analytics.performance`` Sharpe convention (Carver cost drag is linear
+    in simple-return Sharpe). Log returns remain available via
+    ``analytics.returns`` for the documented Masters MCPT exception.
     """
-    from ..analytics.performance import annualized_sharpe, log_returns
+    from ..analytics.performance import annualized_sharpe
     from ..analytics.returns import simple_returns_from_equity
     from scipy.stats import kurtosis, skew
 
@@ -333,8 +338,7 @@ def auto_register_from_equity(
 
     if not isinstance(equity, pd.Series):
         equity = pd.Series(equity)
-    rets = log_returns(equity)
-    simple = simple_returns_from_equity(equity)
+    rets = simple_returns_from_equity(equity)
     metrics = {
         "sharpe": float(annualized_sharpe(equity)),
         "mean": float(rets.mean()) if len(rets) else None,
@@ -343,7 +347,6 @@ def auto_register_from_equity(
         # Pearson kurtosis (normal = 3) — required by Bailey DSR formula.
         "kurt": float(kurtosis(rets, fisher=False)) if len(rets) > 3 else None,
         "n_obs": int(len(rets)),
-        "simple_mean": float(np.mean(simple)) if len(simple) else None,
         "registered_at": datetime.now(timezone.utc).isoformat(),
     }
     return registry.register_experiment(

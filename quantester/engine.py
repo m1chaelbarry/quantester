@@ -23,7 +23,15 @@ import queue
 
 import pandas as pd
 
-from .events import FILL, MARKET, OPEN, ORDER, SIGNAL, MarketEvent
+from .events import (
+    CORPORATE_ACTION,
+    FILL,
+    MARKET,
+    OPEN,
+    ORDER,
+    SIGNAL,
+    MarketEvent,
+)
 
 
 def _open_visible_bars(bars: dict) -> dict:
@@ -37,6 +45,16 @@ def _open_visible_bars(bars: dict) -> dict:
     return out
 
 
+def _same_print_fill_error(what: str) -> ValueError:
+    return ValueError(
+        f"{what} requests delay=0: a fill at the same print the strategy just "
+        "observed is unphysical without explicit latency modeling (Harris, "
+        "Trading and Exchanges; ruling D4). The temporal-firewall delay-0 "
+        "path stays available behind an explicit opt-in: pass "
+        "allow_same_print_fills=True to BacktestEngine."
+    )
+
+
 def _require_callable(obj, name: str, role: str) -> None:
     if not hasattr(obj, name) or not callable(getattr(obj, name)):
         raise TypeError(
@@ -48,7 +66,16 @@ def _require_callable(obj, name: str, role: str) -> None:
 
 
 class BacktestEngine:
-    def __init__(self, data_handler, strategies, portfolio, execution_handler):
+    """Centralized synchronous event loop.
+
+    ``allow_same_print_fills`` (default False, ruling D4): delay-0 strategies
+    fill at the same print they just observed, which is unphysical without
+    latency modeling. Refused unless this flag is True; the intra-bar guard
+    still applies when opted in.
+    """
+
+    def __init__(self, data_handler, strategies, portfolio, execution_handler,
+                 allow_same_print_fills: bool = False):
         if data_handler is None:
             raise TypeError("data_handler is required (e.g. HistoricCSVDataHandler).")
         if portfolio is None:
@@ -68,6 +95,9 @@ class BacktestEngine:
         _require_callable(data_handler, "advance", "data_handler")
         _require_callable(portfolio, "update_from_signal", "portfolio")
         _require_callable(portfolio, "update_from_fill", "portfolio")
+        _require_callable(
+            portfolio, "update_from_corporate_action", "portfolio"
+        )
         _require_callable(execution_handler, "execute_order", "execution_handler")
         for i, strategy in enumerate(strategies):
             _require_callable(strategy, "calculate_signals", f"strategies[{i}]")
@@ -77,6 +107,13 @@ class BacktestEngine:
                     f"strategies[{i}] ({type(strategy).__name__}).delay must be "
                     f"an integer >= 0; got {delay!r}."
                 )
+        self.allow_same_print_fills = bool(allow_same_print_fills)
+        if not self.allow_same_print_fills:
+            for i, strategy in enumerate(strategies):
+                if getattr(strategy, "delay", 1) == 0:
+                    raise _same_print_fill_error(
+                        f"strategies[{i}] ({type(strategy).__name__})"
+                    )
         self.events = queue.Queue()
         self.data_handler = data_handler
         self.strategies = list(strategies)
@@ -97,6 +134,15 @@ class BacktestEngine:
 
         while dh.continue_backtest:
             timestamp, bars = dh.advance()
+
+            # Corporate actions (D9) route through the queue FIRST: ex-date
+            # split quantities / dividend cash must book before any fill or
+            # valuation on the ex-date bar. The queue is empty at the top of
+            # the loop (the prior close phase drained fully), so this drain
+            # processes only CA events.
+            for ca_event in dh.corporate_actions_at(timestamp):
+                self.events.put(ca_event)
+            self._drain_queue()
 
             # Open phase: MARKET ledger first (full bars), then delay=0 strategies
             # see open-only MarketEvent bars.
@@ -140,6 +186,10 @@ class BacktestEngine:
                             self._calculate_signals(strategy, event)
 
             elif event.type == SIGNAL:
+                if event.delay == 0 and not self.allow_same_print_fills:
+                    raise _same_print_fill_error(
+                        f"SignalEvent({event.symbol} {event.signal_type})"
+                    )
                 self.portfolio.update_from_signal(event, self.events)
 
             elif event.type == ORDER:
@@ -147,6 +197,9 @@ class BacktestEngine:
 
             elif event.type == FILL:
                 self.portfolio.update_from_fill(event)
+
+            elif event.type == CORPORATE_ACTION:
+                self.portfolio.update_from_corporate_action(event)
 
             self.events.task_done()
 

@@ -50,6 +50,10 @@ def probabilistic_sharpe_ratio(sr_hat: float, sr_benchmark: float, n_obs: int,
     they are de-annualized by ``sqrt(periods_per_year)`` before the Bailey
     formula is applied. Mixing annualized SR with bar-count ``n_obs`` without
     this flag massively inflates PSR/DSR.
+
+    With ``annualized=True``, pass the MEASURED calendar frequency from
+    ``analytics.performance.measured_periods_per_year`` (D2) rather than the
+    252 default whenever the trials ran on a non-daily calendar.
     """
     if n_obs <= 1:
         return 0.0

@@ -114,9 +114,9 @@ def metrics(equity: pd.Series, portfolio: PortfolioManager | None = None,
         "label": label,
         "total_return": float(equity.iloc[-1] / equity.iloc[0] - 1.0),
         "cagr": float((equity.iloc[-1] / equity.iloc[0]) ** (1.0 / years) - 1.0),
-        "sharpe_365": annualized_sharpe(equity, periods_per_year=PERIODS),
+        "sharpe_ann": annualized_sharpe(equity),
         "max_dd": max_drawdown(equity)["max_drawdown"],
-        "calmar_365": calmar_ratio(equity, periods_per_year=PERIODS),
+        "calmar_ann": calmar_ratio(equity),
     }
     if portfolio is not None:
         pnls = [t["pnl"] for t in portfolio.trades]
@@ -221,17 +221,16 @@ def main():
           f" | one-third rule (0.13): {'EXCEEDED' if drag > 0.13 else 'within'}")
 
     # Vince optimal-f on the 1-unit P&L stream (notebook-verified formulas in
-    # portfolio/sizing.py; worst loss gap-stressed 1.5x per Vince's caveat).
+    # portfolio/sizing.py; raw BiggestLoss by default per ruling D3).
     print("\n-- Vince optimal-f audit (1-unit basis) --")
     unit_pnl = np.array([t["pnl"] / t["qty"] for t in portfolio.trades])
     worst = float(unit_pnl.min())
-    f_star = optimal_f(unit_pnl)                     # gap-stressed by default
-    f_plain = optimal_f(unit_pnl, gap_stress=1.0)    # unstressed, for contrast
-    stressed_worst = worst * 1.5
-    q_dollars = abs(stressed_worst) / f_star if f_star > 0 else np.inf
+    f_star = optimal_f(unit_pnl)                       # raw BiggestLoss (D3)
+    f_stress = optimal_f(unit_pnl, gap_stress=1.5)     # opt-in stress, contrast
+    q_dollars = abs(worst) / f_star if f_star > 0 else np.inf
     k_units = INITIAL_CAPITAL / q_dollars if np.isfinite(q_dollars) else 0.0
-    print(f"  worst 1-BTC loss {worst:,.0f} (gap-stressed {stressed_worst:,.0f})")
-    print(f"  f* = {f_star:.3f} (unstressed {f_plain:.3f})  ->  Q = "
+    print(f"  worst 1-BTC loss {worst:,.0f}")
+    print(f"  f* = {f_star:.3f} (stressed-1.5x {f_stress:.3f})  ->  Q = "
           f"{q_dollars:,.0f} USD per BTC  ->  K = {k_units:.3f} BTC on "
           f"{INITIAL_CAPITAL:,.0f} equity")
     cap_frac = k_units * block_value / INITIAL_CAPITAL

@@ -60,39 +60,69 @@ def spectral_risk_attribution(returns: pd.DataFrame,
 
 
 class DailyDrawdownBreaker:
-    """Intraday circuit breaker against the daily opening balance.
+    """Session circuit breaker against the session's opening balance.
 
     Verification status: not covered by the notebook — implemented from the
     user's strategy specification (prop-evaluation safeguard: trip at a 4.5%
-    intraday loss, a 0.5% cushion below the hard 5.0% daily-loss limit).
+    intraday loss, a 0.5% cushion below the hard 5.0% daily-loss limit), with
+    the session roll from Harris ch. 22 (ruling D11, ticket 27).
 
-    Fires when (day_open_equity - equity) / day_open_equity >= max_intraday_dd
-    on any close-phase valuation. While halted, the portfolio liquidates all
-    positions, cancels every resting order, and drops new entry signals; the
-    halt resets at the next trading-day rollover (timestamp date change).
+    Fires when (session_open_equity - equity) / session_open_equity >=
+    max_intraday_dd on any close-phase valuation. While halted, the portfolio
+    liquidates all positions, cancels every resting order, and drops new entry
+    signals; the halt resets at the next SESSION rollover — never at a naive
+    UTC date change (24/7 crypto/FX mis-rolls at 00:00 UTC).
 
-    Daily opening balance convention: the last equity valuation of the previous
-    trading day (exchange rollover carry). The first valuation of the backtest
-    seeds the baseline from itself, so the breaker cannot trip on day one
-    unless equity later falls below that same-day baseline.
+    Session definition: the timestamp is converted into ``tz`` (naive stamps
+    are read as UTC); a bar strictly before ``day_roll_time`` local belongs to
+    that local date's session, a bar at/after the roll opens the next
+    session's baseline. Defaults: 16:00 America/New_York (US equity session
+    close). Daily bars stamped 00:00 UTC map to their own date's session, so
+    daily behavior is unchanged. A full exchange holiday calendar is out of
+    scope (spec fog); day_roll_time + tz is the first-wave substitute.
+
+    Session opening balance convention: the last equity valuation of the
+    previous session (exchange rollover carry). The first valuation of the
+    backtest seeds the baseline from itself, so the breaker cannot trip on
+    day one unless equity later falls below that same-session baseline.
     """
 
-    def __init__(self, max_intraday_dd: float = 0.045):
+    def __init__(self, max_intraday_dd: float = 0.045,
+                 day_roll_time=None, tz: str = "America/New_York"):
+        import datetime as _dt
+
         if not 0.0 < max_intraday_dd < 1.0:
             raise ValueError("max_intraday_dd must lie in (0, 1)")
+        if day_roll_time is None:
+            day_roll_time = _dt.time(16, 0)
+        if not isinstance(day_roll_time, _dt.time):
+            raise TypeError("day_roll_time must be a datetime.time")
         self.max_intraday_dd = float(max_intraday_dd)
+        self.day_roll_time = day_roll_time
+        self.tz = tz
         self.halted = False
         self.triggered_count = 0
-        self._day = None
+        self._session = None
         self._day_open_equity: float | None = None
         self._last_equity: float | None = None
 
+    def _session_id(self, timestamp):
+        """Trading date in ``tz``, rolled forward at ``day_roll_time``."""
+        ts = pd.Timestamp(timestamp)
+        if ts.tzinfo is None:
+            ts = ts.tz_localize("UTC")
+        local = ts.tz_convert(self.tz)
+        date = local.date()
+        if local.time() >= self.day_roll_time:
+            date = date + pd.Timedelta(days=1)
+        return date
+
     def update(self, timestamp, equity: float) -> bool:
-        """Roll the daily baseline and check the breach; returns True only on
+        """Roll the session baseline and check the breach; returns True only on
         the valuation call that newly trips the breaker."""
-        day = pd.Timestamp(timestamp).date()
-        if day != self._day:
-            self._day = day
+        session = self._session_id(timestamp)
+        if session != self._session:
+            self._session = session
             self.halted = False
             self._day_open_equity = (
                 self._last_equity if self._last_equity is not None else equity

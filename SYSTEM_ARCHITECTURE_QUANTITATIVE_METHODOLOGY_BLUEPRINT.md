@@ -425,7 +425,7 @@ Reference price: `limit_price` if set (size at the limit); else delay-0 → `get
 f^*=\arg\max_{f\in[0,f_{\max}]} \mathrm{TWR}(f)
 \]
 
-with \(W = \mathrm{gap\_stress}\cdot\min_i\mathrm{Trade}_i\) (default `gap_stress=1.5`) if any loss exists; TWR = 0 if any HPR ≤ 0 (ruin). Optimizer: `scipy.optimize.minimize_scalar` bounded. Unconstrained \(f^*\) is **not** attached to `PortfolioManager`.
+with \(W = \mathrm{gap\_stress}\cdot\min_i\mathrm{Trade}_i\) (default `gap_stress=1.0` — raw BiggestLoss per ruling D3; the 1.5 stress is opt-in) if any loss exists; TWR = 0 if any HPR ≤ 0 (ruin). Optimizer: `scipy.optimize.minimize_scalar` bounded. Unconstrained \(f^*\) is **not** attached to `PortfolioManager`.
 
 - Kakushadze: \( E_{\mathrm{eff}} = \operatorname{sign}(E)\max(|E|-\tau,0) \) applied **before** any weight optimization — also not in the live sizer path.
 

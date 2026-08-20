@@ -11,6 +11,9 @@ PARITY CONTRACT with the event engine (asserted by test):
   open proxy on the first bar) — never the fill bar's own H/L
 - cash_t  = cash_{t-1} - dQ_t * fill_price_t - commission(|dQ_t|)
 - equity_t = cash_t + Q_t * close_t
+- FastResult.sharpe IS the event-loop tearsheet function on the same equity
+  series (D7); the dual architecture remains a documented subset contract —
+  the fast-track implements no stops/limits/MOC/delay-0.
 """
 
 from __future__ import annotations
@@ -36,10 +39,15 @@ class FastResult:
 
     @property
     def sharpe(self) -> float:
-        rets = self.daily_returns.dropna()
-        if len(rets) < 2 or rets.std() == 0:
-            return 0.0
-        return float(rets.mean() / rets.std() * np.sqrt(252))
+        """The tearsheet Sharpe on the same equity series (D7, ticket 23):
+        delegates to ``analytics.performance.annualized_sharpe`` — simple
+        returns (D1) on the measured bar calendar (D2). The dual-track
+        contract is otherwise unchanged: the fast-track still implements no
+        stops/limits/MOC/delay-0, only delay-1 market-order paths.
+        ``daily_returns`` remains available for diagnostics."""
+        from ..analytics.performance import annualized_sharpe
+
+        return annualized_sharpe(self.equity)
 
 
 def _open_cost_bar(i: int, open_, high, low, close, volume) -> dict:

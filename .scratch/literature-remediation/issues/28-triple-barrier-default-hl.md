@@ -1,7 +1,7 @@
 # Default triple-barrier to high/low
 
 Type: task
-Status: open
+Status: resolved
 Part of: [Literature remediation decision map](../map.md)
 
 ## Goal
@@ -33,3 +33,7 @@ Ruling: notebook D12 (AFML ch. 3). Optional high/low already shipped (#27); this
 
 - Changing vertical-barrier terminal (still close).
 - Meta-label model architecture.
+
+## Answer
+
+Shipped (commit 5f8f6ea). `triple_barrier_labels(..., high=None, low=None, *, path="auto", ohlc=None)`: auto uses high/low whenever both exist (kwargs or the `ohlc` frame); `path="close"` forces the legacy close-only labels; callers with closes only are unchanged. Same-bar both-hit stays stop. `fit_secondary` accepts an OHLC frame and uses high/low without extra kwargs.

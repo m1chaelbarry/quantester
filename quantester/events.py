@@ -19,6 +19,8 @@ SIGNAL = "SIGNAL"
 ORDER = "ORDER"
 FILL = "FILL"
 
+CORPORATE_ACTION = "CORPORATE_ACTION"  # ex-date dividend cash / split quantity
+
 LONG = "LONG"
 SHORT = "SHORT"
 EXIT = "EXIT"
@@ -165,6 +167,42 @@ class OrderEvent(Event):
         self.earliest_fill_time = earliest_fill_time
         self.stop_price = stop_price
         self.limit_price = limit_price
+
+
+@dataclass
+class CorporateActionEvent(Event):
+    """Ex-date corporate action routed through the queue to the portfolio
+    (ruling D9, ticket 25): dividend cash booking (Peterson ch. 11 — longs
+    receive, shorts pay) or split quantity adjustment on the RAW price
+    ledger. Never a total-return price rewrite: the unadjusted OHLC stream
+    is untouched, so there is no double-booking against adjusted closes.
+
+    Routed via the event queue like every component message — not a direct
+    data-handler → portfolio bypass.
+    """
+
+    symbol: str
+    kind: str  # "dividend" | "split"
+    dividend_per_share: Optional[float] = None
+    split_ratio: Optional[float] = None
+
+    def __init__(self, timestamp, symbol, kind, dividend_per_share=None,
+                 split_ratio=None):
+        super().__init__(CORPORATE_ACTION, timestamp)
+        if kind not in ("dividend", "split"):
+            raise ValueError(f"kind must be 'dividend' or 'split'; got {kind!r}.")
+        if kind == "dividend":
+            if dividend_per_share is None or float(dividend_per_share) < 0:
+                raise ValueError("dividend actions need dividend_per_share >= 0")
+            dividend_per_share = float(dividend_per_share)
+        else:
+            if split_ratio is None or float(split_ratio) <= 0:
+                raise ValueError("split actions need split_ratio > 0")
+            split_ratio = float(split_ratio)
+        self.symbol = symbol
+        self.kind = kind
+        self.dividend_per_share = dividend_per_share
+        self.split_ratio = split_ratio
 
 
 @dataclass

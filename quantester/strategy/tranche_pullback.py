@@ -68,8 +68,9 @@ Execution mechanics under the temporal firewall (delay=1):
 Risk safeguards are deliberately NOT baked into the strategy: the 2x spread +
 fee friction is a CostModel (`execution.costs.ConservativeFrictionCostModel`)
 and the 4.5% daily drawdown circuit breaker is a portfolio overlay
-(`portfolio.risk.DailyDrawdownBreaker`). A breaker liquidation purges the
-resting ladder and suspends ALL signal flow until the daily rollover; the
+(`portfolio.risk.DailyDrawdownBreaker`, rolling on the configured session
+close per D11). A breaker liquidation purges the
+resting ladder and suspends ALL signal flow until the session rollover; the
 state machine then self-heals at the next SMA_5 cross or stop touch
 (conservative post-breaker cooldown).
 

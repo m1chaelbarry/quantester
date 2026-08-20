@@ -1,7 +1,7 @@
 # Unadjusted Yahoo prices plus dividend cash
 
 Type: task
-Status: open
+Status: resolved
 Part of: [Literature remediation decision map](../map.md)
 
 ## Goal
@@ -40,3 +40,7 @@ Ruling: [Adjusted total-return prices versus unadjusted plus corporate-action ca
 - Point-in-time membership / delist / halt.
 - Borrow/short-locate fees beyond the existing documented simplification.
 - Changing idle-cash yield `/365`.
+
+## Answer
+
+Shipped (commit c702f5c). `auto_adjust=False` is the default on `YFinanceDataHandler` and `load_yahoo` (True remains a documented total-return ranking mode and suppresses CA events, so no double-booking). New `CorporateActionEvent` (dividend / split) routes through the queue: `StreamingDataHandler(corporate_actions=...)` or `set_corporate_actions`; the engine drains CA events at the ex-date bar's open before fills/valuation; `PortfolioManager.update_from_corporate_action` books dividend cash (shorts pay) and split quantity (lot avg price divided by the ratio, P&L-continuous). PIT universe/delist stays out (ticket 16).

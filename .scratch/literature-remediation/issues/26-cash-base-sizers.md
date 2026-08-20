@@ -1,7 +1,7 @@
 # Size live sizers on cash, not MTM equity
 
 Type: task
-Status: open
+Status: resolved
 Part of: [Literature remediation decision map](../map.md)
 
 ## Goal
@@ -38,3 +38,7 @@ Ruling: notebook D10 (Carver *Systematic Trading* ch. 10) plus [Live allocation:
 
 - Full Carver FDM / inertia / vol-target live stack (parked specialty).
 - Renaming `PercentEquitySizer` (optional follow-on).
+
+## Answer
+
+Shipped (commit ada9465). `PercentEquitySizer` / `FractionalRiskSizer` / `HedgeRatioSizer` take `base="cash"` (default) | `"equity"` plus optional `cash_ewma_span` (one cash observation per signal timestamp; reused sizers restart on time travel). Non-positive cash targets 0, never a fall-back to equity. `FixedUnitSizer` unchanged; class names kept; Ledoit-Wolf/HRP/LSM/f* stay library-only (D5).
