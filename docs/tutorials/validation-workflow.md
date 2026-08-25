@@ -36,7 +36,7 @@ combinatorial CPCV:
 ```python
 from quantester.validation.cpcv import CombinatorialPurgedKFold
 
-cpcv = CombinatorialPurgedKFold(n_groups=6, k_test=2, t1=t1, pct_embargo=0.01)
+cpcv = CombinatorialPurgedKFold(n_groups=6, k_test=2, t1=t1, lookahead=10)
 sharpes = []
 for train_idx, test_idx in cpcv.split(X):
     model.fit(X.iloc[train_idx], y.iloc[train_idx])

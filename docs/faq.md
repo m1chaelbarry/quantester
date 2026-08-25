@@ -9,6 +9,19 @@ Use `python3` (or activate your virtualenv). The engine requires Python ≥ 3.12
 Install editable from the repo root: `pip install -e .[dev]`. Tests also work
 without install because `pyproject.toml` sets `pythonpath = ["."]` for pytest.
 
+**`ValueError: ... requests delay=0`.**
+Same-print fills are refused by default. Pass
+`allow_same_print_fills=True` to `BacktestEngine` (or `run_backtest`) only
+when you have modeled latency. Prefer `delay=1`.
+
+**`PermissionError` from `source_ohlcv`.**
+The engine seals the full loaded frame during `calculate_signals`. Read
+through `get_latest_bars` / `get_current_open` instead.
+
+**`ValueError: as_daily_reindex ... bfill`.**
+Backward-filling a macro series onto a bar calendar is look-ahead. Use
+`method="ffill"` (causal) or `None` (explicit NaNs).
+
 ## Writing strategies
 
 **My strategy never trades.**
@@ -83,3 +96,14 @@ When `autocorrelation_gate(returns)` reports serial correlation. Use
 `empirical_resample(..., block_length=L)` or OU synthetic paths instead —
 otherwise simulated paths are artificially smooth and downside risk is
 underestimated.
+
+**Why did my Yahoo backtest cash jump on an ex-date?**
+Default `YFinanceDataHandler` / `load_yahoo` uses unadjusted prices and
+books dividend cash (and split quantity) as `CorporateActionEvent`s. Pass
+`auto_adjust=True` only for total-return ranking — then dividends live
+inside the prices and no CA events are emitted.
+
+**Why is my Sharpe different from √252 × log-return SR?**
+Tearsheet Sharpe is simple returns annualized by the **measured** bar
+calendar (`measured_periods_per_year`). Hourly and 24/7 crypto series are
+never silently scaled by 252. Pass `periods_per_year=` to override.

@@ -2,15 +2,17 @@
 
 Module: `quantester/events.py`
 
-Every message that moves through the engine is one of four event types. All
-events are dataclasses with two common fields: `type` (a string constant) and
-`timestamp` (a `pd.Timestamp`).
+Every message that moves through the engine is one of the event types below.
+The four-event **trading** lifecycle is `Market → Signal → Order → Fill`.
+`CorporateActionEvent` is a fifth routed type (ex-date cash/quantity), not a
+bypass of the queue.
 
 ## Constants
 
 ```python
 # Event types
 MARKET, SIGNAL, ORDER, FILL = "MARKET", "SIGNAL", "ORDER", "FILL"
+CORPORATE_ACTION = "CORPORATE_ACTION"  # ex-date dividend cash / split quantity
 
 # Signal directions
 LONG, SHORT, EXIT = "LONG", "SHORT", "EXIT"
@@ -48,11 +50,11 @@ Strategy output: a directional intention for one symbol.
 | `symbol` | `str` | — | Instrument to trade. |
 | `signal_type` | `str` | — | `LONG`, `SHORT`, or `EXIT`. |
 | `strength` | `float` | `1.0` | Conviction multiplier; scales the sizer's target (used by meta-labeling). |
-| `delay` | `int` | `1` | Bars until execution. `1` → fill next bar's open; `0` → fill this bar's open under the intra-bar guard. |
+| `delay` | `int` | `1` | Bars until execution. `1` → fill next bar's open; `0` → fill this bar's open under the intra-bar guard **and** `allow_same_print_fills=True` on the engine. |
 | `fill_at` | `str` | `"open"` | Reference price the portfolio uses for sizing. `"close"` requests a market-on-close fill at the **current** bar's close (close-phase `delay >= 1` strategies only). |
 | `limit_price` | `float \| None` | `None` | When set, the portfolio sizes the target **at this price** and rests a `LIMIT` order (tranche ladders priced off latched levels). |
 | `cancel_orders` | `bool` | `False` | Emit a `CANCEL` order first (purge the symbol's resting book). Set on exits by strategies that rest orders, so unfilled levels cannot re-enter after an exit. |
-| `stop_distance` | `float \| None` | `None` | Price-unit gap from entry to the protective stop. Consumed by `FractionalRiskSizer` as `q = equity × risk_fraction / stop_distance`. |
+| `stop_distance` | `float \| None` | `None` | Price-unit gap from entry to the protective stop. Consumed by `FractionalRiskSizer` as `q = base × risk_fraction / stop_distance` (default `base="cash"`). |
 
 ## `OrderEvent`
 
@@ -82,6 +84,23 @@ Execution confirmation; updates the ledger.
 | `slippage_cost` | `float` | φₜ — implementation shortfall in currency. Recorded for analytics, **never** double-charged. |
 | `reference_price` | `float` | Pre-cost bar price used for the fill. |
 | `total_cost` | property | `commission + slippage_cost`. |
+
+## `CorporateActionEvent`
+
+Ex-date corporate action routed on the queue at the bar's **open**, before
+fills and valuation (ruling D9). The portfolio books it via
+`update_from_corporate_action` — not a data-handler → portfolio bypass.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `symbol` | `str` | Instrument. |
+| `kind` | `str` | `"dividend"` or `"split"`. |
+| `dividend_per_share` | `float \| None` | Cash per share (longs receive, shorts pay). Required for `kind="dividend"`. |
+| `split_ratio` | `float \| None` | Quantity multiplier; lot average price is divided by the ratio. Required for `kind="split"`. |
+
+Yahoo's default unadjusted path (`auto_adjust=False`) emits these from the
+`Dividends` / `Stock Splits` columns. With `auto_adjust=True` no events are
+emitted — dividends already live inside adjusted prices.
 
 ## Example: the life of one trade
 

@@ -58,6 +58,7 @@ Inside the drain, each event type is routed:
 | `SignalEvent` | `Portfolio.update_from_signal` → emits `OrderEvent` |
 | `OrderEvent` | `ExecutionHandler.execute_order` → emits `FillEvent` (or parks it) |
 | `FillEvent` | `Portfolio.update_from_fill` → updates the ledger |
+| `CorporateActionEvent` | `Portfolio.update_from_corporate_action` at the ex-date open (before fills) |
 
 Because events posted during a drain are themselves processed before the phase
 ends, a full `Market → Signal → Order → Fill` cascade completes within one
@@ -87,7 +88,7 @@ may execute:
 | `delay` | Signal computed at | Fills at | Guard |
 | --- | --- | --- | --- |
 | `1` (default) | close of bar T | **open of bar T+1** | Classic T+1; the simplest safe choice. |
-| `0` | open of bar T | **open of bar T** | Intra-bar guard: the strategy only sees data strictly before the fill timestamp (bars ≤ T−1 plus T's open). |
+| `0` | open of bar T | **open of bar T** | Intra-bar guard **and** an explicit opt-in: `BacktestEngine(..., allow_same_print_fills=True)`. Without the flag the engine raises `ValueError` — filling at the print just observed is unphysical without latency modeling. |
 
 Mechanically, the portfolio stamps each `OrderEvent` with an
 `earliest_fill_time` looked up on the DataHandler's master calendar

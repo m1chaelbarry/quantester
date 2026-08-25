@@ -14,8 +14,10 @@ Terminology used across Quantester's docs, code, and reports.
   use only data available at their simulated time. Implemented by the two
   phases plus `earliest_fill_time` on orders — not by a hardcoded T+1 rule.
 - **`delay`** — bars a strategy waits before its orders may execute. `1` =
-  signal at close T, fill at open T+1. `0` = signal and fill at bar T's open
-  under the intra-bar guard.
+  signal at close T, fill at open T+1 (the default live-replicable path).
+  `0` = signal and fill at bar T's open under the intra-bar guard — refused
+  unless `BacktestEngine(..., allow_same_print_fills=True)` (same-print fills
+  are unphysical without latency modeling).
 - **`earliest_fill_time`** — timestamp stamped on each order by the portfolio
   (`signal.timestamp + delay` on the master calendar); the execution ledger
   cannot fill before it.
@@ -50,7 +52,9 @@ Terminology used across Quantester's docs, code, and reports.
 ## Portfolio & sizing
 
 - **Sizer** — callable mapping `(signal, portfolio, ref_price)` to a target
-  quantity; where "how much" is decided.
+  quantity; where "how much" is decided. Live allocative sizers default to
+  `base="cash"` (not mark-to-market equity); `base="equity"` is the
+  procyclical opt-in.
 - **Kelly fraction** — `f* = p − q/b` (binary) or `f = μ/σ²` (Gaussian);
   growth-optimal bet fraction.
 - **Volatility parity** — weights `w_i ∝ 1/σ_i`; equal risk contribution.
@@ -66,8 +70,11 @@ Terminology used across Quantester's docs, code, and reports.
 
 ## Validation & statistics
 
-- **Sharpe ratio (annualized)** — `(μ_daily − Rf)/σ_daily × √252` on log
-  returns.
+- **Sharpe ratio (annualized)** — `(μ_r − Rf)/σ_r × √N_T` on **simple**
+  returns `E_t/E_{t−1} − 1`. `N_T` is the measured bar calendar
+  (`measured_periods_per_year`) unless you pass `periods_per_year=`
+  explicitly; non-datetime indexes fall back to 252. Log returns remain the
+  Masters MCPT/resampling exception, not the tearsheet default.
 - **Max drawdown / Calmar** — worst peak-to-trough loss; annualized return
   divided by it.
 - **Carver speed limit** — cost drag above ~0.08 SR/yr means turnover is
@@ -75,10 +82,12 @@ Terminology used across Quantester's docs, code, and reports.
 - **Truncation test** — Chan's leak detector: full vs truncated runs must
   produce identical overlapping positions.
 - **Purged k-fold / embargo** — CV that drops training samples whose label
-  interval overlaps the test interval (and a post-test buffer), because
-  financial labels overlap in time.
+  interval overlaps the test interval, plus an integer-bar embargo after the
+  test label end (`embargo_bars`, or `min(lookback, lookahead) − 1`).
+  `pct_embargo` is an explicit de Prado ~0.01T override, not the default.
 - **CPCV** — Combinatorial Purged CV: N groups, all `C(N, N−k)` test
-  combinations, `φ[N,k] = (k/N)·C(N, N−k)` backtest paths.
+  combinations, `φ[N,k] = C(N−1, k−1)` unique backtest paths (exact binomial
+  identity; do not compute `(k/N)·C(N, N−k)` in floats).
 - **PBO** — Probability of Backtest Overfitting (Bailey–de Prado CSCV): how
   often the in-sample-best trial ranks below median out-of-sample. Gate:
   `< 0.10`.
@@ -112,4 +121,6 @@ Terminology used across Quantester's docs, code, and reports.
   external (a negative dividend).
 - **Meta-labeling / triple barrier** — a primary model decides side; a
   secondary classifier trained on triple-barrier outcomes (TP / SL / vertical
-  barrier) predicts P(correct) and scales size.
+  barrier) predicts P(correct) and scales size. Default labels walk the
+  high/low path when OHLC is available (`path="auto"`); `path="close"` is the
+  close-only opt-out. Same-bar TP+SL touches label the stop.

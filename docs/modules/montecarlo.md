@@ -28,8 +28,11 @@ result.equity, result.sharpe, result.total_return
 **Parity contract** (asserted by `tests/test_montecarlo.py`): targets decided
 at close T execute at open T+1; fills use the *same* `CostModel` adverse
 adjustments as the event engine; `cash_t = cash_{t-1} − dQ_t·fill −
-commission`; `equity_t = cash_t + Q_t·close_t`. If you change fill semantics,
-keep that test green or Monte Carlo silently diverges from the engine.
+commission`; `equity_t = cash_t + Q_t·close_t`. `FastResult.sharpe` **is**
+`annualized_sharpe` on that equity series (simple returns, measured bar
+calendar) — not a private log/√252 formula. The fast-track still implements
+no stops/limits/MOC/delay-0. If you change fill semantics, keep that test
+green or Monte Carlo silently diverges from the engine.
 
 ## Trade-level resampling
 

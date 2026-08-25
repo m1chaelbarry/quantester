@@ -10,7 +10,7 @@ Python library — you will write a little code — but the happy path is short.
 | --- | --- |
 | Price history (OHLCV) | **Data** (`HistoricCSVDataHandler`, or just a DataFrame) |
 | When to buy / sell / stay flat | **Strategy** (your rules) |
-| How large a position | **Sizer** (e.g. 90% of equity) |
+| How large a position | **Sizer** (e.g. 90% of cash) |
 | Spreads, commissions, slippage | **Cost model** |
 | The simulation clock | **Engine** (you usually do not touch this) |
 
@@ -101,7 +101,7 @@ Full walkthrough: [Creating a Strategy](tutorials/creating-a-strategy.md).
 | Number | Plain meaning |
 | --- | --- |
 | **Total return** | What the account made or lost |
-| **Sharpe** | Return per unit of volatility (higher better; near 0 ≈ no edge) |
+| **Sharpe** | Return per unit of volatility on simple returns, annualized by the measured bar calendar (higher better; near 0 ≈ no edge) |
 | **Max drawdown** | Worst peak-to-trough loss |
 | **Calmar** | Return divided by that drawdown |
 | **Trades / fills** | How often you turned over |
@@ -125,6 +125,8 @@ See [Validation Workflow](tutorials/validation-workflow.md) and
 | `equity_pct=90` instead of `0.9` | `ValueError`: must be in `(0, 1]` |
 | `spread_pct=5` meaning "5 bps" | `ValueError`: use `0.0005`, not `5` |
 | Pass an already-built strategy into `run_backtest` | `TypeError` explaining class vs factory |
+| `delay=0` without `allow_same_print_fills=True` | `ValueError`: same-print fills need the explicit opt-in |
+| Call `source_ohlcv` from `calculate_signals` | `PermissionError` (use `get_latest_bars`) |
 | Re-emit the same target every bar | Huge fill count / commissions (use `emit_target`) |
 | Read a raw DataFrame inside the strategy | Truncation test **FAIL** |
 

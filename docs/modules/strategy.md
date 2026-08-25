@@ -28,7 +28,7 @@ class Strategy(ABC):
 
 | Member | Contract |
 | --- | --- |
-| `delay` | `1` (default): act on close-phase events, fill at next bar's open. `0`: act on open-phase events, fill at the current open under the intra-bar guard. |
+| `delay` | `1` (default): act on close-phase events, fill at next bar's open. `0`: act on open-phase events, fill at the current open under the intra-bar guard — requires `BacktestEngine(..., allow_same_print_fills=True)`. |
 | `matches_phase(phase)` | Engine-internal routing: delay-0 strategies only receive open-phase events; delay-≥1 only close-phase. Override only if you know why. |
 | `calculate_signals(event, queue)` | Your logic. Read via `event.bars` + `data_handler.get_latest_bars`; write via `queue.put(SignalEvent(...))` or `emit_target`. Emit **only on target changes**. |
 | `emit_target(...)` | Preferred helper: emits LONG/SHORT/EXIT only when `target` differs from `self._position`. Prevents commission spam from re-emitting every bar. |
@@ -93,7 +93,8 @@ Volatility-spaced dip-buying ladder for a single symbol (built for BTC):
   refreshes on a daily cadence while fills/stops resolve every bar.
 - **Sizing**: tranche fractions ride on `SignalEvent.strength` against
   `limit_price=T_k`, so wire `PortfolioManager(sizer=PercentEquitySizer(1.0))`
-  for the exact `q_k = equity·f_k/T_k` mapping.
+  for the exact `q_k = base·f_k/T_k` mapping (default `base="cash"`; pass
+  `base="equity"` only if you want MTM sizing).
 - **Exits**: mean reversion at `close ≥ SMA(exit_window)` (next bar's open);
   hard stop at `peak − stop_atr_mult·ATR`. Default execution observes the
   intra-bar low at close and exits delay-1 at the next bar's open. Opt-in
@@ -188,7 +189,7 @@ classifier** predicts the probability that the primary model is right, and
 that probability scales the trade *size* (via `SignalEvent.strength`). This
 filters false positives: precision rises at the cost of recall.
 
-### `triple_barrier_labels(close, events, tp_pct, sl_pct, max_holding, high=None, low=None)`
+### `triple_barrier_labels(close, events, tp_pct, sl_pct, max_holding, high=None, low=None, *, path="auto", ohlc=None)`
 
 Builds the training labels for the secondary model. `events` is a DataFrame
 with columns `t0` (entry timestamp) and `side` (+1/−1). For each event the
@@ -197,12 +198,15 @@ stop-loss at `entry·(1−side·sl_pct)`, and a vertical barrier `max_holding`
 bars out. Label `y=1` when the primary signal was correct (TP touched first,
 or positive realization at the vertical barrier), else `y=0`.
 
-Pass `high`/`low` series for first-touch labeling on the price **path**
-(long TP on the high, long SL on the low; shorts mirrored) — the AFML-faithful
-form. Omit them to recover the legacy close-only path (`high`/`low` default
-to `close`), which under-detects intra-bar touches. When one bar wicks both
-barriers the label is the stop (the intra-bar order is unobservable in OHLC;
-pessimistic on purpose). The vertical barrier still settles on close.
+`path="auto"` (default, ruling D12) labels on the high/low path whenever
+both series are available — pass `high`/`low`, or an `ohlc` DataFrame with
+those columns. Close-only callers keep their labels unchanged (high/low
+fall back to close). `path="close"` forces the legacy close-only labels
+even when high/low are passed. First-touch walks the intra-bar path (long
+TP on the high, long SL on the low; shorts mirrored). When one bar wicks
+both barriers the label is the stop (the intra-bar order is unobservable
+in OHLC; pessimistic on purpose). The vertical barrier still settles on
+close.
 
 ### `MetaLabelingStrategy(primary, data_handler, model=None, feature_fn=None, size_transform="linear")`
 

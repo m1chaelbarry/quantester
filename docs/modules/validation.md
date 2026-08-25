@@ -69,28 +69,33 @@ Tuesday), so plain k-fold leaks. Purging drops training samples whose
 **label interval** overlaps the test interval; the embargo drops training
 samples just *after* the test set.
 
-### `PurgedKFold(n_splits=3, t1=None, pct_embargo=0.01)`
+### `PurgedKFold(n_splits=3, t1=None, embargo_bars=None, lookback=None, lookahead=None, pct_embargo=None)`
 
 sklearn-style splitter. `t1` is a Series of label end-times aligned with
 `X.index` (e.g. the vertical barrier from triple-barrier labeling). A train
 sample `[t_i0, t_i1]` is purged against test `[t_j0, t_j1]` when it starts
-inside, ends inside, or envelops the test interval; the embargo removes train
-samples with `t_j1 ≤ t_i0 ≤ t_j1 + h`, `h = pct_embargo × T` (~0.01T
-recommended).
+inside, ends inside, or envelops the test interval.
+
+Embargo length is an **integer bar window** after the test label end (ruling
+D8). Priority: `embargo_bars` → `min(lookback, lookahead) − 1` (a single
+horizon uses that value minus 1) → explicit `pct_embargo` floored to bars
+(de Prado ~0.01T research override) → **0 bars**. The old silent
+`pct_embargo=0.01` default is gone.
 
 ```python
-for train_idx, test_idx in PurgedKFold(5, t1=t1).split(X):
+for train_idx, test_idx in PurgedKFold(5, t1=t1, lookahead=10).split(X):
     model.fit(X.iloc[train_idx], y.iloc[train_idx])
     score(X.iloc[test_idx], y.iloc[test_idx])
 ```
 
-### `CombinatorialPurgedKFold(n_groups=6, k_test=2, t1=None, pct_embargo=0.01)`
+### `CombinatorialPurgedKFold(n_groups=6, k_test=2, t1=None, embargo_bars=None, lookback=None, lookahead=None, pct_embargo=None)`
 
 CPCV: partition T observations into N groups (no shuffling), then test on
 every combination of k groups — `C(N, N−k)` splits spanning
-`φ[N,k] = (k/N)·C(N, N−k)` unique backtest paths (`.n_splits`, `.n_paths`).
+`φ[N,k] = C(N−1, k−1)` unique backtest paths (`.n_splits`, `.n_paths`; the
+binomial identity is exact — do not compute `(k/N)·C(N, N−k)` in floats).
 Use the per-path Sharpe distribution — not a single number — for honest
-model selection.
+model selection. Embargo knobs are identical to `PurgedKFold`.
 
 ## PBO — Probability of Backtest Overfitting
 
