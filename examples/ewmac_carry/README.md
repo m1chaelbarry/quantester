@@ -1,0 +1,17 @@
+# EWMAC + Crypto Carry
+
+Combined Forecast on a BTC USDT-M perpetual: EWMAC trend + funding Carry Forecast
+in one net `SignalEvent`. Live size is the opt-in Carver vol-target sizer
+(Inertia Buffer + Drawdown De-lever). Kelly is a diagnostic only.
+
+```bash
+# Offline demo (synthetic extras, 13-stage research pipeline)
+python examples/ewmac_carry/run.py
+python examples/ewmac_carry/run.py --full   # heavier MCPT
+
+# Real CCXT (needs pip install "quantester[ccxt]" + network)
+python examples/ewmac_carry/run_ccxt.py
+```
+
+A green `VALIDATED` on the synthetic demo means the **workflow** ran. It is not
+permission to size live capital. Grid hyperparameters are study defaults.

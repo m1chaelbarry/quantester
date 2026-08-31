@@ -125,6 +125,18 @@ parameter study with PBO/DSR gating and bootstrap MC:
 `examples/tranche_pullback/run_parameter_study_intraday.py --tf 4h|1h`
 (calendar-scaled intraday ports).
 
+## EWMAC + crypto carry
+
+`quantester/strategy/ewmac_carry.py`.
+
+### `EWMACCarryStrategy(data_handler, symbol, fast=16, slow=64, trend_weight=0.60, carry_weight=0.40)`
+
+Delay-1 Combined Forecast on one perpetual: EWMAC and Carry Forecast (funding,
+opposite sign) are weighted, expanding-scaled, and multiplied by Carver
+`D_f`. Emits every close; `strength = |F|/20`. Crowded-long sets
+`cap_long_increase`. Pair with `CarverVolTargetSizer` (opt-in, ADR 0001) and
+`PerpMakerTakerCostModel`. Research pipeline: `examples/ewmac_carry/run.py`.
+
 ## Donchian breakout
 
 `quantester/strategy/donchian_breakout.py`.

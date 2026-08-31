@@ -38,6 +38,7 @@ nothing.
 | --- | --- |
 | `SignalEvent` | Computes a reference price (current open for delay-0, latest close otherwise), asks the sizer for a **target quantity**, and emits an `OrderEvent` for the difference from the current position, stamped with `earliest_fill_time = timestamp_at_offset(signal.timestamp, signal.delay)`. Signals on untradeable symbols (no reference price) or with no future bar to fill on are dropped. |
 | `FillEvent` | Updates cash and positions: `cash −= signed_qty × fill_price + commission`. Slippage is already embedded in `fill_price` and is **never** double-charged. Books completed round-trips into `trades`. |
+| `FundingSettlementEvent` | At close, before mark-to-market: `cash += −qty × funding_rate × price` (ETF-trick cash; longs pay when the rate is positive). |
 | `CorporateActionEvent` | At the ex-date open: dividend cash (`position × per-share`; shorts pay) or split quantity (`qty × ratio`, lot average price ÷ ratio). |
 | `MarketEvent` (close) | Marks positions to the bar close, appends to the equity and positions history, and runs the margin monitor — emitting liquidation orders (next bar's open) on a leverage breach. |
 
@@ -70,6 +71,7 @@ off an EWMA of cash (Carver-style smoothing). Non-positive cash targets 0.
 | --- | --- |
 | `PercentEquitySizer(pct=0.5)` | `± pct × base × strength / ref_price` (0 on `EXIT`). Compounds with the sizing base. |
 | `FixedUnitSizer(units=100.0)` | `± units × strength` shares. Used for fast-track parity checks. |
+| `CarverVolTargetSizer(target_vol=0.15)` | Opt-in (ADR 0001): `qty ∝ base × target_vol × DLR × F / (σ_GK × 10 × price)` with Inertia Buffer `β`. Not the default sizer. |
 | `FractionalRiskSizer(risk_fraction=0.02)` | `± base × risk_fraction / stop_distance`. Requires `signal.stop_distance` in price units (e.g. `2 × ATR`). A full stop-out loses ~`risk_fraction` of the base before friction. |
 | `HedgeRatioSizer(pct=0.5)` | Spread sizing: the dependent leg carries `hedge_ratio=1` (sized `pct × base / P_Y`); the hedge leg carries `hedge_ratio=β` plus `hedge_ref_price=P_Y`, so `q_X = −β·q_Y`. Independent per-leg percent sizing is not dollar-neutral on a cointegrating residual (synthesis §1.13). Wired by `PairsTradingStrategy`. |
 
