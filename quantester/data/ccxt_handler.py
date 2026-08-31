@@ -142,6 +142,74 @@ def _fetch_symbol_ohlcv(exchange, symbol: str, timeframe: str = "1d",
     return df
 
 
+def _history_to_series(rows, value_key: str) -> pd.Series:
+    if not rows:
+        return pd.Series(dtype=float)
+    idx = pd.to_datetime([r["timestamp"] for r in rows], unit="ms", utc=True)
+    vals = [r.get(value_key) for r in rows]
+    return pd.Series(vals, index=idx, dtype=float)
+
+
+def _safe_fetch_funding(exchange, symbol: str, since_ms, until_ms) -> pd.Series | None:
+    if not getattr(exchange, "has", {}).get("fetchFundingRateHistory"):
+        return None
+    try:
+        rows = exchange.fetch_funding_rate_history(
+            symbol, since=since_ms, params={"until": until_ms} if until_ms else {},
+        )
+    except Exception:
+        return None
+    series = _history_to_series(rows, "fundingRate")
+    return series if len(series) else None
+
+
+def _safe_fetch_oi(exchange, symbol: str, since_ms, until_ms) -> pd.Series | None:
+    has = getattr(exchange, "has", {})
+    if not has.get("fetchOpenInterestHistory"):
+        return None
+    try:
+        rows = exchange.fetch_open_interest_history(
+            symbol, since=since_ms, params={"until": until_ms} if until_ms else {},
+        )
+    except Exception:
+        return None
+    series = _history_to_series(rows, "openInterestAmount")
+    if series.isna().all():
+        series = _history_to_series(rows, "openInterestValue")
+    return series if len(series) else None
+
+
+def _safe_fetch_dvol(exchange_id: str, since_ms, until_ms) -> pd.Series | None:
+    try:
+        ex = _make_exchange(exchange_id)
+    except Exception:
+        return None
+    if not getattr(ex, "has", {}).get("fetchVolatilityHistory"):
+        return None
+    try:
+        rows = ex.fetch_volatility_history("BTC", since=since_ms)
+    except Exception:
+        return None
+    if not rows:
+        return None
+    # ccxt volatility history: list of {timestamp, volatility} or similar
+    idx, vals = [], []
+    for r in rows:
+        ts = r.get("timestamp")
+        vol = r.get("volatility", r.get("value"))
+        if ts is None or vol is None:
+            continue
+        idx.append(ts)
+        vals.append(vol)
+    if not idx:
+        return None
+    series = pd.Series(vals, index=pd.to_datetime(idx, unit="ms", utc=True), dtype=float)
+    if until_ms is not None:
+        cutoff = pd.to_datetime(until_ms, unit="ms", utc=True)
+        series = series.loc[series.index <= cutoff]
+    return series if len(series) else None
+
+
 class CCXTDataHandler(StreamingDataHandler):
     """Stream crypto-exchange OHLCV through the event engine.
 
@@ -153,11 +221,16 @@ class CCXTDataHandler(StreamingDataHandler):
     drop_incomplete: drop the still-forming final candle (default True).
     exchange_config: extra keys merged into the ccxt exchange constructor
         config (e.g. {"apiKey": ...} -- not needed for public OHLCV).
+    include_extras: when True, also fetch funding-rate history and open
+        interest (same exchange) plus Deribit DVOL when ``dvol_exchange``
+        is set (default ``deribit``). Fail-open: missing capabilities leave
+        the extra column absent.
     """
 
     def __init__(self, symbols, exchange: str = "binance", timeframe: str = "1d",
                  start=None, end=None, limit: int = 1000,
-                 drop_incomplete: bool = True, exchange_config: dict | None = None):
+                 drop_incomplete: bool = True, exchange_config: dict | None = None,
+                 include_extras: bool = False, dvol_exchange: str = "deribit"):
         if isinstance(symbols, str):
             symbols = [symbols]
         ex = _make_exchange(exchange, exchange_config)
@@ -169,6 +242,16 @@ class CCXTDataHandler(StreamingDataHandler):
             )
             for symbol in symbols
         }
+        if include_extras:
+            from .crypto_extras import attach_extras
+
+            dvol = _safe_fetch_dvol(dvol_exchange, since_ms, until_ms)
+            for symbol, frame in list(frames.items()):
+                funding = _safe_fetch_funding(ex, symbol, since_ms, until_ms)
+                oi = _safe_fetch_oi(ex, symbol, since_ms, until_ms)
+                frames[symbol] = attach_extras(
+                    frame, funding=funding, open_interest=oi, dvol=dvol,
+                )
         super().__init__(frames)
         self._exchange_id = exchange
         self._timeframe = timeframe

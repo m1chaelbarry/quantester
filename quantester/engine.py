@@ -26,6 +26,7 @@ import pandas as pd
 from .events import (
     CORPORATE_ACTION,
     FILL,
+    FUNDING_SETTLEMENT,
     MARKET,
     OPEN,
     ORDER,
@@ -72,10 +73,15 @@ class BacktestEngine:
     fill at the same print they just observed, which is unphysical without
     latency modeling. Refused unless this flag is True; the intra-bar guard
     still applies when opted in.
+
+    ``book_funding_settlements`` (default True): at close, before valuation,
+    emit ``FundingSettlementEvent``s from the handler. Set False for
+    Combined Forecast parity against the fast-track (which has no funding cash).
     """
 
     def __init__(self, data_handler, strategies, portfolio, execution_handler,
-                 allow_same_print_fills: bool = False):
+                 allow_same_print_fills: bool = False,
+                 book_funding_settlements: bool = True):
         if data_handler is None:
             raise TypeError("data_handler is required (e.g. HistoricCSVDataHandler).")
         if portfolio is None:
@@ -108,6 +114,7 @@ class BacktestEngine:
                     f"an integer >= 0; got {delay!r}."
                 )
         self.allow_same_print_fills = bool(allow_same_print_fills)
+        self.book_funding_settlements = bool(book_funding_settlements)
         if not self.allow_same_print_fills:
             for i, strategy in enumerate(strategies):
                 if getattr(strategy, "delay", 1) == 0:
@@ -157,8 +164,13 @@ class BacktestEngine:
             )
             self._drain_queue()
 
-            # Close phase: mark-to-market, stop/limit ledger, then delay>=1 strategies
+            # Close phase: Funding Settlement first (ETF-trick cash), then
+            # mark-to-market, stop/limit ledger, then delay>=1 strategies.
             dh.set_phase("close", timestamp)
+            if self.book_funding_settlements:
+                for fs_event in dh.funding_settlements_at(timestamp):
+                    self.events.put(fs_event)
+                self._drain_queue()
             self.events.put(MarketEvent(timestamp=timestamp, bars=bars, phase="close"))
             self._drain_queue()
 
@@ -200,6 +212,11 @@ class BacktestEngine:
 
             elif event.type == CORPORATE_ACTION:
                 self.portfolio.update_from_corporate_action(event)
+
+            elif event.type == FUNDING_SETTLEMENT:
+                fn = getattr(self.portfolio, "update_from_funding_settlement", None)
+                if fn is not None:
+                    fn(event)
 
             self.events.task_done()
 
