@@ -9,12 +9,14 @@ Sizing base (ruling D10, ticket 26): the live sizers default to
 equity (MTM sizing is procyclical: equity inflated by a run-up over-sizes
 the next entry and the reversal unwinds it, synthesis §1.16). ``base="equity"``
 is the explicit procyclical opt-in; ``cash_ewma_span`` optionally smooths the
-cash base (Carver-style). Vol-target / Kelly / f* stay research libraries in
-``sizing.py`` (D5 KEEP — nothing wires them into the event loop).
+cash base (Carver-style). Kelly / f* stay research libraries in ``sizing.py``
+(D5 KEEP). An opt-in ``CarverVolTargetSizer`` is the ADR-0001 exception for
+EWMAC + crypto carry — not the default live sizer.
 """
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from ..events import EXIT, LONG
@@ -182,3 +184,119 @@ class HedgeRatioSizer(_CashOrEquityBase):
         if base_value <= 0:
             return 0.0
         return sign * abs(ratio) * base_value * self.pct / base_price
+
+
+class CarverVolTargetSizer(_CashOrEquityBase):
+    """Opt-in Carver vol-target live sizer (ADR 0001).
+
+    ``qty = sign * (base * target_vol * dlr_scale * F) / (σ_ann * 10 * price)``
+    where ``F = strength * forecast_cap`` and ``σ_ann`` is Garman–Klass
+    (EWM variance, annualized by ``sqrt(periods_per_year)``).
+
+    Drawdown De-lever scales ``target_vol`` from ``dlr_threshold`` to zero at
+    ``dlr_cap`` on peak-to-trough equity. ``inertia_beta`` is read by
+    ``PortfolioManager`` (no order unless |Δq| exceeds β|q_target|).
+
+    Default base is cash (D10). Not the default sizer.
+    """
+
+    def __init__(
+        self,
+        target_vol: float = 0.15,
+        forecast_cap: float = 20.0,
+        gk_span: int = 20,
+        periods_per_year: float = 365.0,
+        dlr_threshold: float = 0.10,
+        dlr_cap: float = 0.20,
+        inertia_beta: float = 0.15,
+        *,
+        base: str = "cash",
+        cash_ewma_span: int | None = None,
+    ):
+        if target_vol <= 0:
+            raise ValueError("target_vol must be > 0")
+        if forecast_cap <= 0:
+            raise ValueError("forecast_cap must be > 0")
+        if gk_span < 2:
+            raise ValueError("gk_span must be >= 2")
+        if periods_per_year <= 0:
+            raise ValueError("periods_per_year must be > 0")
+        if not 0.0 <= dlr_threshold < dlr_cap:
+            raise ValueError("need 0 <= dlr_threshold < dlr_cap")
+        if not 0.0 <= inertia_beta < 1.0:
+            raise ValueError("inertia_beta must lie in [0, 1)")
+        _CashOrEquityBase.__init__(self, base, cash_ewma_span)
+        self.target_vol = float(target_vol)
+        self.forecast_cap = float(forecast_cap)
+        self.gk_span = int(gk_span)
+        self.periods_per_year = float(periods_per_year)
+        self.dlr_threshold = float(dlr_threshold)
+        self.dlr_cap = float(dlr_cap)
+        self.inertia_beta = float(inertia_beta)
+        self._hwm: float | None = None
+        self._hwm_seen_ts = None
+
+    def _dlr_scale(self, signal, portfolio) -> float:
+        eq = float(portfolio.equity)
+        ts = getattr(signal, "timestamp", None)
+        if (
+            ts is not None
+            and self._hwm_seen_ts is not None
+            and ts < self._hwm_seen_ts
+        ):
+            self._hwm = None
+            self._hwm_seen_ts = None
+        if self._hwm is None or eq > self._hwm:
+            self._hwm = eq
+        if ts is not None:
+            self._hwm_seen_ts = ts
+        if self._hwm is None or self._hwm <= 0:
+            return 1.0
+        dd = (self._hwm - eq) / self._hwm
+        if dd <= self.dlr_threshold:
+            return 1.0
+        if dd >= self.dlr_cap:
+            return 0.0
+        span = self.dlr_cap - self.dlr_threshold
+        return max(0.0, 1.0 - (dd - self.dlr_threshold) / span)
+
+    def _gk_annual_vol(self, portfolio, symbol: str) -> float:
+        handler = getattr(portfolio, "data_handler", None)
+        if handler is None:
+            return 0.0
+        bars = handler.get_latest_bars(symbol, self.gk_span + 5)
+        if bars is None or len(bars) < 2:
+            return 0.0
+        high = bars["high"].astype(float)
+        low = bars["low"].astype(float)
+        close = bars["close"].astype(float)
+        open_ = bars["open"].astype(float)
+        valid = (high > 0) & (low > 0) & (close > 0) & (open_ > 0)
+        log_hl = np.log(high[valid] / low[valid])
+        log_co = np.log(close[valid] / open_[valid])
+        var = 0.5 * log_hl ** 2 - (2.0 * np.log(2.0) - 1.0) * log_co ** 2
+        if var.empty:
+            return 0.0
+        daily = float(np.sqrt(var.ewm(span=self.gk_span, min_periods=2).mean().iloc[-1]))
+        if not np.isfinite(daily) or daily <= 0:
+            return 0.0
+        return daily * float(np.sqrt(self.periods_per_year))
+
+    def __call__(self, signal, portfolio, ref_price: float) -> float:
+        if signal.signal_type == EXIT or ref_price <= 0:
+            return 0.0
+        sigma = self._gk_annual_vol(portfolio, signal.symbol)
+        if sigma <= 0:
+            return 0.0
+        base_value = self._base_value(signal, portfolio)
+        if base_value <= 0:
+            return 0.0
+        sign = 1.0 if signal.signal_type == LONG else -1.0
+        forecast = float(signal.strength) * self.forecast_cap
+        scale = self._dlr_scale(signal, portfolio)
+        notional = (
+            base_value * self.target_vol * scale * forecast
+            / (sigma * 10.0)
+        )
+        return sign * notional / float(ref_price)
+

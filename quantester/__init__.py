@@ -14,6 +14,7 @@ from .engine import BacktestEngine
 from .events import EXIT, LONG, SHORT, SignalEvent
 from .execution import CostModel, SimulatedExecutionHandler
 from .portfolio import (
+    CarverVolTargetSizer,
     FixedUnitSizer,
     FractionalRiskSizer,
     HedgeRatioSizer,
@@ -32,6 +33,7 @@ from .simple import (
 from .strategy import (
     BuyAndHoldStrategy,
     DonchianBreakoutStrategy,
+    EWMACCarryStrategy,
     MovingAverageCrossStrategy,
     Strategy,
     TranchePullbackStrategy,
@@ -72,11 +74,13 @@ __all__ = [
     "PercentEquitySizer",
     "FractionalRiskSizer",
     "HedgeRatioSizer",
+    "CarverVolTargetSizer",
     # Built-in strategies
     "BuyAndHoldStrategy",
     "MovingAverageCrossStrategy",
     "DonchianBreakoutStrategy",
     "TranchePullbackStrategy",
+    "EWMACCarryStrategy",
     # Signals
     "SignalEvent",
     "LONG",

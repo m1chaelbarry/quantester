@@ -299,3 +299,60 @@ def retail_cost_scenario(name: str = "BASE", **overrides) -> RetailCostModel:
         )
     params = {**presets[key], **overrides}
     return RetailCostModel(**params)
+
+
+@dataclass
+class PerpMakerTakerCostModel(CostModel):
+    """USDT-M perpetual maker/taker fees as notional commission (c_t).
+
+    Default VIP0 0.02% maker / 0.05% taker from the EWMAC+carry report.
+    Adverse adjustment is half-spread only (``spread_pct``); Kaufman/Kyle
+    stay at the CostModel defaults unless the caller zeros them.
+
+    ``fill_price`` embeds ``phi_t``; cash is charged ``qty * fill_price +
+    commission`` once — never double-deduct ``slippage_cost``.
+
+    Verification status: fee schedule from the architecture report; not a
+    notebook formula.
+    """
+
+    maker_fee: float = 0.0002
+    taker_fee: float = 0.0005
+    take_liquidity: bool = True
+    fixed_commission: float = 0.0
+    per_share_commission: float = 0.0
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.maker_fee < 0 or self.taker_fee < 0:
+            raise ValueError("maker_fee and taker_fee must be >= 0")
+
+    def commission(self, quantity: float, price: float | None = None) -> float:
+        if quantity <= 0:
+            return 0.0
+        if price is None or price <= 0:
+            raise ValueError(
+                "PerpMakerTakerCostModel.commission requires the fill "
+                "reference price to charge notional-based fees."
+            )
+        rate = self.taker_fee if self.take_liquidity else self.maker_fee
+        return rate * quantity * price
+
+
+def perp_cost_scenario(name: str = "BASE", **overrides) -> PerpMakerTakerCostModel:
+    """BASE / CONSERVATIVE / STRESS maker-taker presets for cost-stress tests."""
+    presets = {
+        "BASE": dict(maker_fee=0.0002, taker_fee=0.0005, spread_pct=0.0002,
+                     slippage_vol_coef=0.0, impact_coef=0.0),
+        "CONSERVATIVE": dict(maker_fee=0.0002, taker_fee=0.0008, spread_pct=0.0004,
+                             slippage_vol_coef=0.05, impact_coef=0.05),
+        "STRESS": dict(maker_fee=0.0004, taker_fee=0.0015, spread_pct=0.0010,
+                       slippage_vol_coef=0.10, impact_coef=0.10),
+    }
+    key = name.upper()
+    if key not in presets:
+        raise ValueError(
+            f"Unknown perp cost scenario {name!r}; expected one of {sorted(presets)}"
+        )
+    params = {**presets[key], **overrides}
+    return PerpMakerTakerCostModel(**params)
