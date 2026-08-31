@@ -16,13 +16,15 @@ the look-ahead firewall implemented here:
 
 Normalized frame contract (enforced at construction): lowercase
 open/high/low/close/volume columns, unique sorted **timezone-aware UTC**
-datetime index. Provider adapters localize/convert at the ingestion boundary
-so the core engine never mixes exchange-local naive, UTC-naive, and aware
-timestamps.
+datetime index. Optional extra columns (funding_rate, open_interest, dvol, …)
+pass through and share the same temporal-firewall visibility as close.
+Provider adapters localize/convert at the ingestion boundary so the core
+engine never mixes exchange-local naive, UTC-naive, and aware timestamps.
 """
 
 from __future__ import annotations
 
+import math
 import warnings
 
 import pandas as pd
@@ -73,7 +75,14 @@ def normalize_ohlcv_frame(
         df = df[~df.index.duplicated(keep=keep)]
     out = df.sort_index()
     out.index = ensure_utc_index(out.index)
-    return out[list(REQUIRED_COLUMNS)].astype(float)
+    ohlcv = out[list(REQUIRED_COLUMNS)].astype(float)
+    extras = [c for c in out.columns if c not in REQUIRED_COLUMNS]
+    if not extras:
+        return ohlcv
+    extra_df = out[extras].copy()
+    for col in extras:
+        extra_df[col] = pd.to_numeric(extra_df[col], errors="coerce")
+    return pd.concat([ohlcv, extra_df], axis=1)
 
 
 class StreamingDataHandler(DataHandler):
@@ -237,6 +246,29 @@ class StreamingDataHandler(DataHandler):
         if timestamp in df.index:
             return df.loc[timestamp]
         return None
+
+    def funding_settlements_at(self, timestamp) -> list:
+        """Emit Funding Settlements from the current bar's ``funding_rate`` extra."""
+        from ..events import FundingSettlementEvent
+
+        events = []
+        for symbol, bar in self._bars.items():
+            if bar is None:
+                continue
+            if "funding_rate" not in bar.index:
+                continue
+            rate = bar["funding_rate"]
+            if pd.isna(rate):
+                continue
+            rate_f = float(rate)
+            if not math.isfinite(rate_f):
+                continue
+            events.append(
+                FundingSettlementEvent(
+                    timestamp, symbol, rate_f, float(bar["close"])
+                )
+            )
+        return events
 
     def _source_ohlcv(self, symbol: str) -> pd.DataFrame:
         """Return a copy of the loaded OHLCV frame for ``symbol``."""

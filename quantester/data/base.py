@@ -110,8 +110,16 @@ class DataHandler(ABC):
     def corporate_actions_at(self, timestamp) -> list:
         """Corporate-action events (dividend cash / split quantity) whose
         ex-date is ``timestamp`` — routed onto the event queue by the engine
-        at the bar's open, before any fill or valuation (ruling D9). Feeds
+        at the bar's open, before any fill or valuation (ruling D9).         Feeds
         without a corporate-action schedule return an empty list."""
+        return []
+
+    def funding_settlements_at(self, timestamp) -> list:
+        """Funding Settlement events for ``timestamp`` (daily-bar extras).
+
+        Routed by the engine at close, before valuation. Feeds without a
+        ``funding_rate`` extra return an empty list. NaN rates are skipped.
+        """
         return []
 
     @property

@@ -24,6 +24,7 @@ this and must honor the visibility contract exactly.
 | `current_timestamp` | property | The stream's current timestamp. |
 | `bar_at(symbol, timestamp)` | → row or `None` | Execution-side full-bar lookup (used by the execution simulator). |
 | `source_ohlcv(symbol)` | → `pd.DataFrame` | Full loaded frame for **research / post-run** use. The engine seals this during `calculate_signals` (`PermissionError`); live signals must use `get_latest_bars` / `get_current_open`. |
+| `funding_settlements_at(timestamp)` | → `list` | `FundingSettlementEvent`s for this bar's `funding_rate` extra (daily sum). Empty when the column is absent or NaN. Engine routes them at **close, before valuation**. |
 
 ## `HistoricCSVDataHandler`
 
@@ -59,7 +60,7 @@ All converge on `StreamingDataHandler` (same firewall / availability masks):
 | --- | --- | --- |
 | `HistoricCSVDataHandler` | none | CSV path or DataFrame |
 | `YFinanceDataHandler` | `[yfinance]` | Yahoo OHLCV; default `auto_adjust=False` (D9) — raw prices + dividend-cash / split-quantity events |
-| `CCXTDataHandler` | `[ccxt]` | Exchange OHLCV |
+| `CCXTDataHandler` | `[ccxt]` | Exchange OHLCV; `include_extras=True` adds funding/OI/DVOL. `geo_safe=True` rewrites Binance fapi to `www.binance.com` (HTTP 451). Funding history is paginated. |
 | `StooqDataHandler` | `[data]` + `QUANTESTER_STOOQ_API_KEY` | CSV download; tickers need suffixes (`aapl.us`) |
 | `FMPDataHandler` | `[data]` + `QUANTESTER_FMP_API_KEY` | Stable EOD JSON |
 | `AKShareDataHandler` | `[akshare]` / `[data]` | `market='cn'` A-shares or `market='us'` |

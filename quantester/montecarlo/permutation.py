@@ -96,6 +96,18 @@ def intra_inter_bar_permutation(ohlc: pd.DataFrame,
     )
 
 
+def permute_joint_bars(df: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
+    """Shuffle whole daily bars as units so extras stay glued to their OHLC.
+
+    Used for MCPT on Combined Forecast (carry must not attach to a foreign
+    price path). The calendar index is preserved; only row contents move.
+    """
+    order = rng.permutation(len(df))
+    out = df.iloc[order].copy()
+    out.index = df.index
+    return out
+
+
 def masters_p_value(original_performance: float, permuted_performances) -> float:
     """count starts at 1; +1 whenever permuted >= original; p = count / n_reps."""
     permuted = np.asarray(permuted_performances, dtype=float)

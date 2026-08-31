@@ -7,7 +7,8 @@ incomplete-bar dropping rule, which deletes high-stress/illiquid periods and
 induces selection bias). Streaming/firewall semantics live in
 StreamingDataHandler.
 
-CSV schema: datetime,open,high,low,close,volume
+CSV schema: datetime,open,high,low,close,volume (extra columns such as
+funding_rate are kept and share firewall visibility with close)
 """
 
 from __future__ import annotations

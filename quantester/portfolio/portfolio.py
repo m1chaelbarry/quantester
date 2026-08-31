@@ -25,6 +25,7 @@ from ..events import (
 from .base import Portfolio
 from .risk import DailyDrawdownBreaker, MarginMonitor
 from .sizers import (
+    CarverVolTargetSizer,
     FixedUnitSizer,
     FractionalRiskSizer,
     HedgeRatioSizer,
@@ -34,6 +35,7 @@ from .sizers import (
 # Re-export sizers for backward-compatible deep imports:
 # ``from quantester.portfolio.portfolio import PercentEquitySizer``.
 __all__ = [
+    "CarverVolTargetSizer",
     "FixedUnitSizer",
     "PercentEquitySizer",
     "FractionalRiskSizer",
@@ -151,6 +153,15 @@ class PortfolioManager(Portfolio):
             return  # untradeable at this timestamp (availability mask)
         target = float(self.sizer(signal, self, ref_price))
         current = self.positions.get(signal.symbol, 0.0)
+        if getattr(signal, "cap_long_increase", False):
+            # Crowded-long: never raise a long; new longs from flat are blocked.
+            target = min(target, max(current, 0.0))
+        inertia_beta = getattr(self.sizer, "inertia_beta", None)
+        if inertia_beta is None:
+            inertia_beta = getattr(self, "inertia_beta", None)
+        if inertia_beta is not None and abs(target) >= 1e-12:
+            if abs(target - current) <= float(inertia_beta) * abs(target):
+                target = current
         # Margin restriction: block any order that would increase |position|
         # (new entry risk). Risk-reducing shrinks / flips toward flat remain
         # allowed so recovery and intentional exits can proceed.
@@ -238,6 +249,19 @@ class PortfolioManager(Portfolio):
                     lot["avg_price"] /= event.split_ratio
         else:
             raise ValueError(f"unknown corporate-action kind {event.kind!r}")
+
+    def update_from_funding_settlement(self, event) -> None:
+        """Book perpetual Funding Settlement as ETF-trick cash (not K_t).
+
+        ``cash += -qty * funding_rate * price``. Longs pay when the rate is
+        positive. Skipped when flat or when rate/price is non-finite.
+        """
+        qty = self.positions.get(event.symbol, 0.0)
+        rate = float(event.funding_rate)
+        price = float(event.price)
+        if abs(qty) < 1e-12 or not np.isfinite(rate) or not np.isfinite(price):
+            return
+        self.cash += -qty * rate * price
 
     # -------------------------------------------------------------------- fills
 

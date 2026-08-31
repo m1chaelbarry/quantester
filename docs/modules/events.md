@@ -13,6 +13,7 @@ bypass of the queue.
 # Event types
 MARKET, SIGNAL, ORDER, FILL = "MARKET", "SIGNAL", "ORDER", "FILL"
 CORPORATE_ACTION = "CORPORATE_ACTION"  # ex-date dividend cash / split quantity
+FUNDING_SETTLEMENT = "FUNDING_SETTLEMENT"  # perpetual funding as ETF-trick cash
 
 # Signal directions
 LONG, SHORT, EXIT = "LONG", "SHORT", "EXIT"
@@ -55,6 +56,7 @@ Strategy output: a directional intention for one symbol.
 | `limit_price` | `float \| None` | `None` | When set, the portfolio sizes the target **at this price** and rests a `LIMIT` order (tranche ladders priced off latched levels). |
 | `cancel_orders` | `bool` | `False` | Emit a `CANCEL` order first (purge the symbol's resting book). Set on exits by strategies that rest orders, so unfilled levels cannot re-enter after an exit. |
 | `stop_distance` | `float \| None` | `None` | Price-unit gap from entry to the protective stop. Consumed by `FractionalRiskSizer` as `q = base × risk_fraction / stop_distance` (default `base="cash"`). |
+| `cap_long_increase` | `bool` | `False` | Crowded-long gate: the portfolio will not raise a long (`target = min(target, max(current, 0))`). |
 
 ## `OrderEvent`
 
@@ -101,6 +103,18 @@ fills and valuation (ruling D9). The portfolio books it via
 Yahoo's default unadjusted path (`auto_adjust=False`) emits these from the
 `Dividends` / `Stock Splits` columns. With `auto_adjust=True` no events are
 emitted — dividends already live inside adjusted prices.
+
+## `FundingSettlementEvent`
+
+Perpetual funding booked as ETF-trick cash at **close**, before valuation.
+Longs pay when `funding_rate` is positive (`cash += -qty × rate × price`).
+Not a D9 dividend (those are unsigned).
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `symbol` | `str` | Perpetual. |
+| `funding_rate` | `float` | Signed daily sum of 8h prints. |
+| `price` | `float` | Bar close used as notional. |
 
 ## Example: the life of one trade
 

@@ -427,3 +427,45 @@ def test_real_exchange_constructs_offline():
     exchange = ch._make_exchange("kraken")
     assert exchange.enableRateLimit is True
     assert exchange.has["fetchOHLCV"] is True
+
+
+def test_funding_history_paginates_by_since():
+    class Pager:
+        has = {"fetchFundingRateHistory": True}
+
+        def fetch_funding_rate_history(self, symbol, since=None, limit=None):
+            if since is None or since <= 1_000:
+                return [
+                    {"timestamp": 1_000 + 8_000 * i, "fundingRate": 0.0001 * (i + 1)}
+                    for i in range(3)
+                ]
+            if since == 1_000 + 16_000 + 1:
+                return [
+                    {"timestamp": 1_000 + 24_000, "fundingRate": 0.0004},
+                    {"timestamp": 1_000 + 32_000, "fundingRate": 0.0005},
+                ]
+            return []
+
+    rows = ch._page_funding_history(Pager(), "BTC/USDT:USDT", since_ms=0, until_ms=None)
+    assert len(rows) == 5
+    assert rows[-1]["fundingRate"] == pytest.approx(0.0005)
+
+
+def test_dvol_index_rows_use_close():
+    rows = [[1_700_000_000_000, 50.0, 60.0, 40.0, 55.5]]
+    s = ch._dvol_from_index_rows(rows)
+    assert float(s.iloc[0]) == pytest.approx(55.5)
+
+
+def test_apply_binance_www_host_rewrites_fapi():
+    class Dummy:
+        urls = {"api": {
+            "fapiPublic": "https://fapi.binance.com/fapi/v1",
+            "fapiData": "https://fapi.binance.com/futures/data",
+            "public": "https://api.binance.com/api/v3",
+        }}
+
+    ch._apply_binance_www_host(Dummy)
+    assert Dummy.urls["api"]["fapiPublic"].startswith("https://www.binance.com")
+    assert Dummy.urls["api"]["fapiData"] == "https://www.binance.com/futures/data"
+    assert Dummy.urls["api"]["public"].startswith("https://api.binance.com")

@@ -29,6 +29,7 @@ Read [`docs/for-traders.md`](../docs/for-traders.md) before Tier 4 if you are no
 | [`monte_carlo/`](monte_carlo/) | MCPT, resampling, drawdown bounds, O-U paths | `python examples/monte_carlo/run.py` |
 | [`visualizations/`](visualizations/) | Chart gallery + interactive viewer | `python examples/visualizations/run.py` |
 | [`production_research/`](production_research/) | **Reference workflow**: audit → grid → WF → PBO/DSR → MCPT → gates | `python examples/production_research/run.py` |
+| [`ewmac_carry/`](ewmac_carry/) | EWMAC + crypto carry Combined Forecast, 13-stage gates | `python examples/ewmac_carry/run.py` |
 | [`tranche_pullback/`](tranche_pullback/) | BTC tranche ladder, CCXT study, PBO/DSR grids | `python examples/tranche_pullback/run.py` |
 | [`donchian_breakout/`](donchian_breakout/) | Hourly Donchian study + **daily multi-coin** sleeve | `python examples/donchian_breakout/run_multi_coin_viz.py` |
 

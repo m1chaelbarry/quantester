@@ -20,6 +20,7 @@ ORDER = "ORDER"
 FILL = "FILL"
 
 CORPORATE_ACTION = "CORPORATE_ACTION"  # ex-date dividend cash / split quantity
+FUNDING_SETTLEMENT = "FUNDING_SETTLEMENT"  # perpetual funding as ETF-trick cash
 
 LONG = "LONG"
 SHORT = "SHORT"
@@ -88,11 +89,12 @@ class SignalEvent(Event):
     hedge_ref_price: Optional[float] = None
     stop_price: Optional[float] = None
     stop_only: bool = False
+    cap_long_increase: bool = False
 
     def __init__(self, timestamp, symbol, signal_type, strength=1.0, delay=1,
                  fill_at=OPEN, limit_price=None, cancel_orders=False,
                  stop_distance=None, hedge_ratio=None, hedge_ref_price=None,
-                 stop_price=None, stop_only=False):
+                 stop_price=None, stop_only=False, cap_long_increase=False):
         super().__init__(SIGNAL, timestamp)
         if signal_type not in (LONG, SHORT, EXIT):
             raise ValueError(
@@ -138,6 +140,8 @@ class SignalEvent(Event):
         # When True, skip the size delta and only rest/replace the protective
         # stop on the current (or sized) quantity — used after a tranche freeze.
         self.stop_only = bool(stop_only)
+        # Crowded-long gate: do not increase a long (new longs from flat blocked).
+        self.cap_long_increase = bool(cap_long_increase)
 
 
 @dataclass
@@ -203,6 +207,25 @@ class CorporateActionEvent(Event):
         self.kind = kind
         self.dividend_per_share = dividend_per_share
         self.split_ratio = split_ratio
+
+
+@dataclass
+class FundingSettlementEvent(Event):
+    """Perpetual Funding Settlement booked as ETF-trick cash, not a price rewrite.
+
+    Longs pay when ``funding_rate`` is positive: ``cash += -qty * rate * price``.
+    Routed at close, before valuation. Distinct from D9 dividends (unsigned).
+    """
+
+    symbol: str
+    funding_rate: float
+    price: float
+
+    def __init__(self, timestamp, symbol, funding_rate: float, price: float):
+        super().__init__(FUNDING_SETTLEMENT, timestamp)
+        self.symbol = symbol
+        self.funding_rate = float(funding_rate)
+        self.price = float(price)
 
 
 @dataclass

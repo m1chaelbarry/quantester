@@ -89,6 +89,10 @@ holds. Matches Carver's round-trip form `2 × (spread/2 + fee)` per leg
 (notebook cross-reference: "it is better to be conservative and assume costs
 are higher than you'd hope").
 
+### `PerpMakerTakerCostModel(maker_fee=0.0002, taker_fee=0.0005)`
+
+USDT-M VIP0 maker/taker as notional `c_t`. `perp_cost_scenario("BASE"|"CONSERVATIVE"|"STRESS")` for cost-stress. `fill_price` still embeds `phi_t`; do not double-deduct `slippage_cost`.
+
 ### `RetailCostModel` (OHLCV-only retail friction)
 
 Configurable retail execution without Level-2 data:
