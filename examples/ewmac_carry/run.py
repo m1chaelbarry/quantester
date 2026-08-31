@@ -324,7 +324,11 @@ def stage_report(payload: dict):
         trial_count=payload["n_trials"],
         code_version="ewmac_carry_example",
         assumptions={
-            "instrument": "BTC USDT-M perpetual (synthetic extras in demo)",
+            "instrument": (
+                "BTC USDT-M perpetual (Binance Vision/ccxt + Deribit DVOL)"
+                if payload.get("live_data")
+                else "BTC USDT-M perpetual (synthetic extras in demo)"
+            ),
             "delay": 1,
             "sizing": "Carver vol-target + Inertia Buffer + Drawdown De-lever; Kelly diagnostic only",
             "costs": "PerpMakerTakerCostModel VIP0 2/5 bps",
@@ -380,6 +384,7 @@ def main(ohlcv: pd.DataFrame | None = None):
         "robustness": {"walk_forward": wf_stats, "mcpt_p": mcpt.p_value,
                        "cost_stress": stress_scores},
         "oos_stats": oos_stats,
+        "live_data": ohlcv is not None,
     })
     print(f"\nArtifacts: {OUTPUT}")
     return report.status
