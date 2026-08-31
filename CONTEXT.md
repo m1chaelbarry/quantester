@@ -39,3 +39,11 @@ _Avoid_: adding high funding as a positive position forecast
 **Inertia Buffer**:
 A rebalance gate: no order unless `|q_target − q_current|` exceeds a fraction of `|q_target|`.
 _Avoid_: dead zone, hysteresis (when used as a synonym for this gate)
+
+**Funding Settlement**:
+Signed perpetual-funding cash booked on the ledger as ETF-trick cash. Longs pay when the rate is positive.
+_Avoid_: dividend (for funding), embedding funding in `K_t`
+
+**Drawdown De-lever**:
+Scale target volatility from a drawdown threshold down to zero risk at a drawdown cap, measured peak-to-trough on equity.
+_Avoid_: DailyDrawdownBreaker (session-loss flatten; a different overlay)
