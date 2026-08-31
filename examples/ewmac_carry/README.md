@@ -18,3 +18,5 @@ permission to size live capital. Grid hyperparameters are study defaults.
 
 Live Binance USDT-M (funding paginated, OI from Vision dumps, Deribit DVOL).
 Regional `fapi.binance.com` 451 is rerouted via `geo_safe=True`. No GBM fallback.
+
+Raport z przebiegu 2021-01-01 → 2026-08-30: [`BINANCE_USDTM_STUDY.md`](BINANCE_USDTM_STUDY.md) (`NOT_VALIDATED`).
