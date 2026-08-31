@@ -60,7 +60,7 @@ All converge on `StreamingDataHandler` (same firewall / availability masks):
 | --- | --- | --- |
 | `HistoricCSVDataHandler` | none | CSV path or DataFrame |
 | `YFinanceDataHandler` | `[yfinance]` | Yahoo OHLCV; default `auto_adjust=False` (D9) — raw prices + dividend-cash / split-quantity events |
-| `CCXTDataHandler` | `[ccxt]` | Exchange OHLCV; `include_extras=True` adds funding/OI/DVOL |
+| `CCXTDataHandler` | `[ccxt]` | Exchange OHLCV; `include_extras=True` adds funding/OI/DVOL. `geo_safe=True` rewrites Binance fapi to `www.binance.com` (HTTP 451). Funding history is paginated. |
 | `StooqDataHandler` | `[data]` + `QUANTESTER_STOOQ_API_KEY` | CSV download; tickers need suffixes (`aapl.us`) |
 | `FMPDataHandler` | `[data]` + `QUANTESTER_FMP_API_KEY` | Stable EOD JSON |
 | `AKShareDataHandler` | `[akshare]` / `[data]` | `market='cn'` A-shares or `market='us'` |
