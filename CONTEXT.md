@@ -27,3 +27,15 @@ _Avoid_: calling a delay-1 `EXIT` signal a stop
 **Literature conflict**:
 A finding where specialist books disagree, so it is not a defect until a wayfinder ticket rules it.
 _Avoid_: treating a conflict row as a bug
+
+**Combined Forecast**:
+The single signed forecast formed from weighted EWMAC and Carry Forecast, mapped to one net position in one SignalEvent.
+_Avoid_: simultaneous execution, overlay books, dual position
+
+**Carry Forecast**:
+The funding-derived forecast in desired-position space (positive = long the perpetual). It has the opposite sign of a positive funding rate.
+_Avoid_: adding high funding as a positive position forecast
+
+**Inertia Buffer**:
+A rebalance gate: no order unless `|q_target − q_current|` exceeds a fraction of `|q_target|`.
+_Avoid_: dead zone, hysteresis (when used as a synonym for this gate)
