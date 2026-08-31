@@ -62,8 +62,13 @@ def fetch_um_daily_open_interest(
     max_workers: int = 24,
 ) -> pd.Series:
     """Last-print open interest per UTC day from Vision daily metrics zips."""
-    start_ts = pd.Timestamp(start, tz="UTC")
-    end_ts = pd.Timestamp(end, tz="UTC") if end is not None else pd.Timestamp.now(tz="UTC").normalize()
+    start_ts = pd.Timestamp(start)
+    start_ts = start_ts.tz_localize("UTC") if start_ts.tzinfo is None else start_ts.tz_convert("UTC")
+    if end is None:
+        end_ts = pd.Timestamp.now(tz="UTC").normalize()
+    else:
+        end_ts = pd.Timestamp(end)
+        end_ts = end_ts.tz_localize("UTC") if end_ts.tzinfo is None else end_ts.tz_convert("UTC")
     days = pd.date_range(start_ts.normalize(), end_ts.normalize(), freq="D", tz="UTC")
 
     def _one(day: pd.Timestamp):
