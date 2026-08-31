@@ -40,6 +40,8 @@ from .streaming import StreamingDataHandler
 
 _OHLCV_MAP = {"Open": "open", "High": "high", "Low": "low", "Close": "close",
               "Volume": "volume"}
+# Yahoo CA / adjustment columns are events (D9), not strategy-visible extras.
+_DROP_COLUMNS = ("Dividends", "Stock Splits", "Capital Gains", "Adj Close")
 
 
 def _import_yfinance():
@@ -127,6 +129,8 @@ class YFinanceDataHandler(StreamingDataHandler):
                 ca = _extract_corporate_actions(raw)
                 if ca is not None:
                     ca_frames[symbol] = ca
-            frames[symbol] = raw
+            frames[symbol] = raw.drop(
+                columns=[c for c in _DROP_COLUMNS if c in raw.columns]
+            )
         super().__init__(frames, corporate_actions=ca_frames or None)
         self._interval = interval
