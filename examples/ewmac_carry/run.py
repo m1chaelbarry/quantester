@@ -86,7 +86,9 @@ def stage_data(cfg: dict, ohlcv: pd.DataFrame | None = None):
     df.to_csv(OUTPUT / "BTC_PERP.csv", index_label="datetime")
     audit = audit_ohlcv_frame(
         df, SYMBOL, expected_freq="D" if ohlcv is not None else "B",
-        adjustment_policy="synthetic_unadjusted",
+        adjustment_policy=(
+            "binance_um_unadjusted" if ohlcv is not None else "synthetic_unadjusted"
+        ),
         corporate_actions_documented=True,
         delistings_considered=True,
         survivorship_bias_considered=True,

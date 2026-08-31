@@ -300,3 +300,24 @@ def test_permute_joint_bars_keeps_funding_glued():
     got = list(zip(out["close"].to_numpy(), out["funding_rate"].to_numpy()))
     assert sorted(orig, key=lambda x: (x[0], x[1])) == sorted(got, key=lambda x: (x[0], x[1]))
     assert list(out.index) == list(df.index)
+
+
+def test_vision_metrics_zip_last_oi():
+    import csv
+    import io
+    import zipfile
+
+    from quantester.data.binance_vision import last_open_interest_from_metrics_zip
+
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["create_time", "symbol", "sum_open_interest", "sum_open_interest_value"])
+    w.writerow(["2024-01-01 00:00:00", "BTCUSDT", "100.0", "1"])
+    w.writerow(["2024-01-01 23:55:00", "BTCUSDT", "12345.5", "2"])
+    raw = io.BytesIO()
+    with zipfile.ZipFile(raw, "w") as zf:
+        zf.writestr("BTCUSDT-metrics-2024-01-01.csv", buf.getvalue())
+    ts, oi = last_open_interest_from_metrics_zip(raw.getvalue())
+    assert oi == pytest.approx(12345.5)
+    assert ts.tz is not None
+    assert ts.hour == 23 and ts.minute == 55

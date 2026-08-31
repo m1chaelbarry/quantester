@@ -15,3 +15,6 @@ python examples/ewmac_carry/run_ccxt.py
 
 A green `VALIDATED` on the synthetic demo means the **workflow** ran. It is not
 permission to size live capital. Grid hyperparameters are study defaults.
+
+Live Binance USDT-M (funding paginated, OI from Vision dumps, Deribit DVOL).
+Regional `fapi.binance.com` 451 is rerouted via `geo_safe=True`. No GBM fallback.
